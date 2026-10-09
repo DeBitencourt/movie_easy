@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/media_item.dart';
 import '../services/tmdb_service.dart';
-import '../services/anilist_service.dart';
 
 class CatalogProvider extends ChangeNotifier {
   final TmdbService _tmdbService = TmdbService();
-  final AniListService _aniListService = AniListService();
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -17,8 +15,6 @@ class CatalogProvider extends ChangeNotifier {
   List<MediaItem> _trendingTv = [];
   List<MediaItem> _popularTv = [];
   List<MediaItem> _popularDoramas = [];
-  List<MediaItem> _trendingAnime = [];
-  List<MediaItem> _popularAnime = [];
 
   // Getters
   bool get isLoading => _isLoading;
@@ -29,8 +25,6 @@ class CatalogProvider extends ChangeNotifier {
   List<MediaItem> get trendingTv => _trendingTv;
   List<MediaItem> get popularTv => _popularTv;
   List<MediaItem> get popularDoramas => _popularDoramas;
-  List<MediaItem> get trendingAnime => _trendingAnime;
-  List<MediaItem> get popularAnime => _popularAnime;
 
   Future<void> loadHomeCatalog() async {
     _isLoading = true;
@@ -44,8 +38,6 @@ class CatalogProvider extends ChangeNotifier {
         _tmdbService.getTrendingTv(),
         _tmdbService.getPopularTv(),
         _tmdbService.getPopularDoramas(),
-        _aniListService.getTrendingAnime(),
-        _aniListService.getPopularAnime(),
       ]);
 
       _trendingMovies = results[0];
@@ -53,8 +45,6 @@ class CatalogProvider extends ChangeNotifier {
       _trendingTv = results[2];
       _popularTv = results[3];
       _popularDoramas = results[4];
-      _trendingAnime = results[5];
-      _popularAnime = results[6];
 
       // Escolhe um item em destaque dinâmico para o banner principal (o #1 em alta com bom backdrop)
       if (_trendingMovies.isNotEmpty) {
@@ -71,42 +61,32 @@ class CatalogProvider extends ChangeNotifier {
     }
   }
 
-  // Busca unificada (Filmes, Séries, Doramas e Animes)
+  // Busca unificada (Filmes, Séries e Doramas)
   Future<List<MediaItem>> searchAll(String query) async {
     if (query.trim().isEmpty) return [];
 
     try {
-      final tmdbFuture = _tmdbService.search(query);
-      final animeFuture = _aniListService.searchAnime(query);
-
-      final results = await Future.wait([tmdbFuture, animeFuture]);
-      final List<MediaItem> combined = [];
-      combined.addAll(results[0]);
-      combined.addAll(results[1]);
-      return combined;
+      final results = await _tmdbService.search(query);
+      return results;
     } catch (e) {
       return [];
     }
   }
 
-  // Carregador específico para cada categoria
-  Future<List<MediaItem>> getCategoryItems(MediaTypeEnum type, {String filter = 'popular'}) async {
+  // Carregador específico para cada categoria com paginação infinita
+  Future<List<MediaItem>> getCategoryItems(MediaTypeEnum type, {String filter = 'popular', int page = 1}) async {
     switch (type) {
       case MediaTypeEnum.movie:
-        if (filter == 'top_rated') return _tmdbService.getTopRatedMovies();
-        if (filter == 'trending') return _tmdbService.getTrendingMovies();
-        return _tmdbService.getPopularMovies();
+        if (filter == 'top_rated') return _tmdbService.getTopRatedMovies(page: page);
+        if (filter == 'trending') return _tmdbService.getTrendingMovies(page: page);
+        return _tmdbService.getPopularMovies(page: page);
       case MediaTypeEnum.tv:
-        if (filter == 'top_rated') return _tmdbService.getTopRatedTv();
-        if (filter == 'trending') return _tmdbService.getTrendingTv();
-        return _tmdbService.getPopularTv();
+        if (filter == 'top_rated') return _tmdbService.getTopRatedTv(page: page);
+        if (filter == 'trending') return _tmdbService.getTrendingTv(page: page);
+        return _tmdbService.getPopularTv(page: page);
       case MediaTypeEnum.dorama:
-        if (filter == 'top_rated') return _tmdbService.getTopRatedDoramas();
-        return _tmdbService.getPopularDoramas();
-      case MediaTypeEnum.anime:
-        if (filter == 'top_rated') return _aniListService.getTopRatedAnime();
-        if (filter == 'trending') return _aniListService.getTrendingAnime();
-        return _aniListService.getPopularAnime();
+        if (filter == 'top_rated') return _tmdbService.getTopRatedDoramas(page: page);
+        return _tmdbService.getPopularDoramas(page: page);
     }
   }
 }

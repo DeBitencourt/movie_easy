@@ -14,6 +14,7 @@ class AppTheme {
   static const Color secondary = Color(0xFF3880FF);
   static const Color starRating = Color(0xFFFFB800); // Amarelo Dourado para Notas
   static const Color badgeGreen = Color(0xFF10B981); // 1080p / Dual / Status
+  static const Color badgeRed = Color(0xFFEF4444); // Erros / Falhas
 
   // Tipografia e Texto
   static const Color textPrimary = Color(0xFFF3F4F6);

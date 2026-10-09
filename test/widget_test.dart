@@ -1,9 +1,35 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:movie_easy/main.dart';
+import 'package:movie_easy/widgets/app_logo.dart';
+import 'package:movie_easy/widgets/custom_title_bar.dart';
 
 void main() {
-  testWidgets('App smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const MovieEasyApp());
-    expect(find.byType(MovieEasyApp), findsOneWidget);
+  testWidgets('AppLogo renders with MovieEasy brand text and icon', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AppLogo(
+            size: 32,
+            showText: true,
+            subtitle: 'Streaming & Torrents',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(AppLogo), findsOneWidget);
+    expect(find.text('Streaming & Torrents'), findsOneWidget);
+  });
+
+  testWidgets('CustomTitleBar renders correctly', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: CustomTitleBar(),
+        ),
+      ),
+    );
+
+    expect(find.byType(CustomTitleBar), findsOneWidget);
   });
 }

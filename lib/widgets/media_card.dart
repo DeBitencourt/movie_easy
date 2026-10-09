@@ -156,11 +156,9 @@ class _MediaCardState extends State<MediaCard> {
                             child: Text(
                               item.type.label.toUpperCase(),
                               style: TextStyle(
-                                color: item.type == MediaTypeEnum.anime
-                                    ? Colors.cyanAccent
-                                    : (item.type == MediaTypeEnum.dorama
-                                        ? Colors.pinkAccent
-                                        : AppTheme.textSecondary),
+                                color: item.type == MediaTypeEnum.dorama
+                                    ? Colors.pinkAccent
+                                    : AppTheme.textSecondary,
                                 fontSize: 9,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.5,

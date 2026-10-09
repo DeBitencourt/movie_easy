@@ -57,9 +57,6 @@ class _SearchViewState extends State<SearchView> {
     if (_selectedCategory == 'dorama') {
       return _allResults.where((i) => i.type == MediaTypeEnum.dorama).toList();
     }
-    if (_selectedCategory == 'anime') {
-      return _allResults.where((i) => i.type == MediaTypeEnum.anime).toList();
-    }
     return _allResults;
   }
 
@@ -92,7 +89,7 @@ class _SearchViewState extends State<SearchView> {
               autofocus: false,
               style: const TextStyle(color: AppTheme.textPrimary),
               decoration: InputDecoration(
-                hintText: 'Digite o nome do filme, série, anime ou dorama...',
+                hintText: 'Digite o nome do filme, série ou dorama...',
                 prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.textSecondary),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
@@ -120,8 +117,6 @@ class _SearchViewState extends State<SearchView> {
                 _buildFilterChip('Séries', 'tv'),
                 const SizedBox(width: 8),
                 _buildFilterChip('Doramas', 'dorama'),
-                const SizedBox(width: 8),
-                _buildFilterChip('Animes', 'anime'),
               ],
             ),
           ),
@@ -153,7 +148,7 @@ class _SearchViewState extends State<SearchView> {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'Filmes, Séries, Doramas e Animes com metadados completos',
+                              'Filmes, Séries e Doramas com metadados completos',
                               style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
                             ),
                           ],

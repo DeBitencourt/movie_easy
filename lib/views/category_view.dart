@@ -20,22 +20,78 @@ class _CategoryViewState extends State<CategoryView> {
   String _selectedFilter = 'popular';
   List<MediaItem> _items = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadItems();
   }
 
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
+      _loadMoreItems();
+    }
+  }
+
   Future<void> _loadItems() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _currentPage = 1;
+      _hasMore = true;
+    });
     final catalog = context.read<CatalogProvider>();
-    final results = await catalog.getCategoryItems(widget.type, filter: _selectedFilter);
+    final results = await catalog.getCategoryItems(widget.type, filter: _selectedFilter, page: 1);
     if (mounted) {
       setState(() {
         _items = results;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadMoreItems() async {
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final catalog = context.read<CatalogProvider>();
+      final nextPage = _currentPage + 1;
+      final results = await catalog.getCategoryItems(widget.type, filter: _selectedFilter, page: nextPage);
+
+      if (mounted) {
+        if (results.isEmpty) {
+          setState(() {
+            _hasMore = false;
+            _isLoadingMore = false;
+          });
+        } else {
+          final existingIds = _items.map((e) => e.id).toSet();
+          final newUniqueItems = results.where((e) => !existingIds.contains(e.id)).toList();
+
+          setState(() {
+            _currentPage = nextPage;
+            _items.addAll(newUniqueItems);
+            _isLoadingMore = false;
+            if (results.length < 5) {
+              _hasMore = false;
+            }
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -67,7 +123,7 @@ class _CategoryViewState extends State<CategoryView> {
             ),
           ),
 
-          // Grade de Resultados
+          // Grade de Resultados com rolagem infinita
           Expanded(
             child: _isLoading
                 ? GridView.builder(
@@ -88,30 +144,64 @@ class _CategoryViewState extends State<CategoryView> {
                           style: TextStyle(color: AppTheme.textMuted),
                         ),
                       )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          childAspectRatio: 0.62,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 16,
-                        ),
-                        itemCount: _items.length,
-                        itemBuilder: (context, index) {
-                          final item = _items[index];
-                          return MediaCard(
-                            item: item,
-                            width: double.infinity,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => DetailsView(item: item),
+                    : CustomScrollView(
+                        controller: _scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        slivers: [
+                          SliverPadding(
+                            padding: const EdgeInsets.all(16),
+                            sliver: SliverGrid(
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                childAspectRatio: 0.62,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 16,
+                              ),
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) {
+                                  final item = _items[index];
+                                  return MediaCard(
+                                    item: item,
+                                    width: double.infinity,
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => DetailsView(item: item),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                                childCount: _items.length,
+                              ),
+                            ),
+                          ),
+                          if (_isLoadingMore)
+                            const SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppTheme.primary,
+                                    strokeWidth: 2.5,
+                                  ),
                                 ),
-                              );
-                            },
-                          );
-                        },
+                              ),
+                            ),
+                          if (!_hasMore && _items.isNotEmpty)
+                            const SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 20),
+                                child: Center(
+                                  child: Text(
+                                    'Você chegou ao fim desta categoria.',
+                                    style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
           ),
         ],

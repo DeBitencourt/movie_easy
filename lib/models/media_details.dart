@@ -66,6 +66,7 @@ class MediaDetails {
   final List<String> genres;
   final List<SeasonInfo> seasons;
   final List<String> cast;
+  final String? englishTitle;
 
   MediaDetails({
     required this.item,
@@ -75,5 +76,6 @@ class MediaDetails {
     this.genres = const [],
     this.seasons = const [],
     this.cast = const [],
+    this.englishTitle,
   });
 }

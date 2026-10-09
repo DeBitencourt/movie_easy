@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/media_item.dart';
 import '../models/media_details.dart';
+import '../models/torrent_item.dart';
+import '../providers/downloads_provider.dart';
 import '../services/tmdb_service.dart';
-import '../services/anilist_service.dart';
+import '../services/kisskh_service.dart';
+import '../services/comando_torrents_service.dart';
+import '../services/pirate_bay_service.dart';
+import '../widgets/torrent_resolver_sheet.dart';
 
 class DetailsView extends StatefulWidget {
   final MediaItem item;
@@ -17,7 +23,6 @@ class DetailsView extends StatefulWidget {
 
 class _DetailsViewState extends State<DetailsView> {
   final TmdbService _tmdbService = TmdbService();
-  final AniListService _aniListService = AniListService();
 
   bool _isLoading = true;
   MediaDetails? _details;
@@ -34,13 +39,7 @@ class _DetailsViewState extends State<DetailsView> {
   Future<void> _loadDetails() async {
     setState(() => _isLoading = true);
     try {
-      if (widget.item.type == MediaTypeEnum.anime) {
-        final d = await _aniListService.getAnimeDetails(widget.item.id);
-        setState(() {
-          _details = d;
-          _isLoading = false;
-        });
-      } else if (widget.item.type == MediaTypeEnum.movie) {
+      if (widget.item.type == MediaTypeEnum.movie) {
         final d = await _tmdbService.getMovieDetails(widget.item.id);
         setState(() {
           _details = d;
@@ -78,110 +77,32 @@ class _DetailsViewState extends State<DetailsView> {
   }
 
   void _showTorrentModal({int? episodeNumber}) {
-    final media = widget.item;
-    final isDubbedTarget = media.type == MediaTypeEnum.movie || media.type == MediaTypeEnum.tv;
-    final sourceName = isDubbedTarget ? 'ComandoTorrents (Dual/Dublado)' : 'Nyaa.si (Legendado/Multi-sub)';
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => TorrentResolverSheet(
+        item: widget.item,
+        seasonNumber: widget.item.type == MediaTypeEnum.movie ? null : _selectedSeason,
+        episodeNumber: episodeNumber,
+        englishTitle: _details?.englishTitle ?? widget.item.englishTitle,
+      ),
+    );
+  }
+
+  void _openBatchDownloadModal() {
+    if (_episodes.isEmpty) return;
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppTheme.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _BatchEpisodeDownloadSheet(
+        item: widget.item,
+        seasonNumber: _selectedSeason,
+        episodes: _episodes,
+        englishTitle: _details?.englishTitle ?? widget.item.englishTitle,
       ),
-      builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Fontes de Torrent Disponíveis',
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    icon: const Icon(Icons.close_rounded, color: AppTheme.textMuted),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.cloud_download_outlined, color: AppTheme.primary, size: 28),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Fonte Configurada: $sourceName',
-                            style: const TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Termo de busca: "${media.originalTitle}" ${episodeNumber != null ? 'E$episodeNumber' : ''}',
-                            style: const TextStyle(
-                              color: AppTheme.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'O resolvedor de torrents conectará diretamente à fonte selecionada no próximo módulo para download sequencial e reprodução via player.',
-                style: TextStyle(color: AppTheme.textMuted, fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Buscando magnet links para ${media.title}...'),
-                        backgroundColor: AppTheme.cardHover,
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.search_rounded),
-                  label: const Text('Iniciar Busca de Torrents'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -433,38 +354,61 @@ class _DetailsViewState extends State<DetailsView> {
                   ],
 
                   // Seção de Temporadas e Episódios (Para Séries e Doramas)
-                  if (_details?.seasons.isNotEmpty ?? false) ...[
+                  if ((_details?.seasons.isNotEmpty ?? false) || _episodes.isNotEmpty) ...[
                     const SizedBox(height: 32),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Episódios',
-                          style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                        Row(
+                          children: [
+                            const Text(
+                              'Episódios',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_episodes.isNotEmpty) ...[
+                              const SizedBox(width: 10),
+                              ElevatedButton.icon(
+                                onPressed: _openBatchDownloadModal,
+                                icon: const Icon(Icons.download_for_offline_rounded, size: 16),
+                                label: const Text(
+                                  'Baixar Vários',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.surface,
+                                  foregroundColor: AppTheme.primary,
+                                  side: const BorderSide(color: AppTheme.primary),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        // Dropdown de Temporada se houver temporadas cadastradas
+                        if (_details?.seasons.isNotEmpty ?? false)
+                          DropdownButton<int>(
+                            value: _selectedSeason,
+                            dropdownColor: AppTheme.card,
+                            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                            underline: const SizedBox(),
+                            items: _details!.seasons.map((s) {
+                              return DropdownMenuItem<int>(
+                                value: s.seasonNumber,
+                                child: Text(s.name),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _selectedSeason = val);
+                                _loadEpisodes(val);
+                              }
+                            },
                           ),
-                        ),
-                        // Dropdown de Temporada
-                        DropdownButton<int>(
-                          value: _selectedSeason,
-                          dropdownColor: AppTheme.card,
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
-                          underline: const SizedBox(),
-                          items: _details!.seasons.map((s) {
-                            return DropdownMenuItem<int>(
-                              value: s.seasonNumber,
-                              child: Text(s.name),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedSeason = val);
-                              _loadEpisodes(val);
-                            }
-                          },
-                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -568,6 +512,339 @@ class _DetailsViewState extends State<DetailsView> {
 
                   const SizedBox(height: 40),
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BatchEpisodeDownloadSheet extends StatefulWidget {
+  final MediaItem item;
+  final int seasonNumber;
+  final List<EpisodeItem> episodes;
+  final String? englishTitle;
+
+  const _BatchEpisodeDownloadSheet({
+    required this.item,
+    required this.seasonNumber,
+    required this.episodes,
+    this.englishTitle,
+  });
+
+  @override
+  State<_BatchEpisodeDownloadSheet> createState() => _BatchEpisodeDownloadSheetState();
+}
+
+class _BatchEpisodeDownloadSheetState extends State<_BatchEpisodeDownloadSheet> {
+  late final Set<int> _selectedEpisodeNumbers;
+  bool _isResolving = false;
+  String _statusMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedEpisodeNumbers = widget.episodes.map((e) => e.episodeNumber).toSet();
+  }
+
+  void _startBatchDownload() async {
+    if (_selectedEpisodeNumbers.isEmpty) return;
+
+    setState(() {
+      _isResolving = true;
+      _statusMessage = 'Obtendo fontes para ${_selectedEpisodeNumbers.length} episódios...';
+    });
+
+    final downloads = context.read<DownloadsProvider>();
+    final List<TorrentItem> torrentsToDownload = [];
+
+    try {
+      if (widget.item.type == MediaTypeEnum.dorama) {
+        // KissKH CDN
+        final allKisskh = await KisskhService.searchTorrents(
+          title: widget.item.title,
+          originalTitle: widget.item.originalTitle,
+          englishTitle: widget.englishTitle,
+          season: widget.seasonNumber,
+        );
+
+        for (final epNum in _selectedEpisodeNumbers) {
+          final match = allKisskh.firstWhere(
+            (t) => t.episodeNumber == epNum,
+            orElse: () => TorrentItem(
+              title: '',
+              rawLabel: '',
+              magnetUrl: '',
+              infoHash: '',
+              quality: '1080p',
+              size: '',
+              isDubbed: false,
+              isSubbed: true,
+              format: 'MPEG-TS',
+              source: 'KissKH (CDN)',
+            ),
+          );
+          if (match.magnetUrl.isNotEmpty) {
+            torrentsToDownload.add(match);
+          }
+        }
+      } else {
+        // Séries: Comando Torrents e The Pirate Bay
+        for (final epNum in _selectedEpisodeNumbers) {
+          setState(() {
+            _statusMessage = 'Buscando episódio $epNum de ${_selectedEpisodeNumbers.length}...';
+          });
+          final results = await Future.wait([
+            ComandoTorrentsService.searchTorrents(
+              title: widget.item.title,
+              originalTitle: widget.item.originalTitle,
+              season: widget.seasonNumber,
+              episode: epNum,
+            ).catchError((_) => <TorrentItem>[]),
+            PirateBayService.searchTorrents(
+              title: widget.item.title,
+              originalTitle: widget.item.originalTitle,
+              englishTitle: widget.englishTitle,
+              season: widget.seasonNumber,
+              episode: epNum,
+            ).catchError((_) => <TorrentItem>[]),
+          ]);
+          final epTorrents = [...results[0], ...results[1]];
+          if (epTorrents.isNotEmpty) {
+            epTorrents.sort((a, b) => (b.seeders ?? 0).compareTo(a.seeders ?? 0));
+            torrentsToDownload.add(epTorrents.first);
+          }
+        }
+      }
+
+      if (!mounted) return;
+
+      if (torrentsToDownload.isEmpty) {
+        setState(() {
+          _isResolving = false;
+          _statusMessage = 'Nenhuma fonte encontrada para os episódios selecionados.';
+        });
+        return;
+      }
+
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.download_done_rounded, color: AppTheme.badgeGreen, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Download de ${torrentsToDownload.length} episódios iniciado simultaneamente! Acompanhe na aba Downloads.'),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.cardHover,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+
+      await downloads.addMultipleDownloads(
+        torrents: torrentsToDownload,
+        media: widget.item,
+        seasonNumber: widget.seasonNumber,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isResolving = false;
+          _statusMessage = 'Erro: $e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Baixar Episódios em Lote',
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${widget.item.title} • ${widget.seasonNumber}ª Temporada',
+                        style: const TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: AppTheme.textMuted),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: AppTheme.border, height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                Text(
+                  '${_selectedEpisodeNumbers.length} de ${widget.episodes.length} selecionados',
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _isResolving
+                      ? null
+                      : () {
+                          setState(() {
+                            if (_selectedEpisodeNumbers.length == widget.episodes.length) {
+                              _selectedEpisodeNumbers.clear();
+                            } else {
+                              _selectedEpisodeNumbers.addAll(widget.episodes.map((e) => e.episodeNumber));
+                            }
+                          });
+                        },
+                  child: Text(
+                    _selectedEpisodeNumbers.length == widget.episodes.length
+                        ? 'Desmarcar Todos'
+                        : 'Selecionar Todos',
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_statusMessage.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              child: Row(
+                children: [
+                  if (_isResolving) ...[
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      _statusMessage,
+                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              itemCount: widget.episodes.length,
+              separatorBuilder: (_, __) => const Divider(color: AppTheme.border, height: 1),
+              itemBuilder: (ctx, idx) {
+                final ep = widget.episodes[idx];
+                final isSelected = _selectedEpisodeNumbers.contains(ep.episodeNumber);
+                return CheckboxListTile(
+                  value: isSelected,
+                  activeColor: AppTheme.primary,
+                  checkColor: Colors.white,
+                  contentPadding: EdgeInsets.zero,
+                  enabled: !_isResolving,
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedEpisodeNumbers.add(ep.episodeNumber);
+                      } else {
+                        _selectedEpisodeNumbers.remove(ep.episodeNumber);
+                      }
+                    });
+                  },
+                  title: Text(
+                    'Episódio ${ep.episodeNumber}: ${ep.title}',
+                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: (ep.overview != null && ep.overview!.isNotEmpty)
+                      ? Text(
+                          ep.overview!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                        )
+                      : null,
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              border: Border(top: BorderSide(color: AppTheme.border)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: (_selectedEpisodeNumbers.isNotEmpty && !_isResolving)
+                      ? _startBatchDownload
+                      : null,
+                  icon: _isResolving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_rounded, size: 20),
+                  label: Text(
+                    _isResolving
+                        ? 'Iniciando Downloads...'
+                        : 'Baixar ${_selectedEpisodeNumbers.length} Episódios Selecionados',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
               ),
             ),
           ),

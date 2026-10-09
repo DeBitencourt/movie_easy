@@ -4,7 +4,6 @@ enum MediaTypeEnum {
   movie,
   tv,
   dorama,
-  anime,
 }
 
 extension MediaTypeExtension on MediaTypeEnum {
@@ -16,8 +15,6 @@ extension MediaTypeExtension on MediaTypeEnum {
         return 'Série';
       case MediaTypeEnum.dorama:
         return 'Dorama';
-      case MediaTypeEnum.anime:
-        return 'Anime';
     }
   }
 }
@@ -26,6 +23,7 @@ class MediaItem {
   final String id;
   final String title;
   final String originalTitle;
+  final String? englishTitle;
   final String? posterUrl;
   final String? backdropUrl;
   final String overview;
@@ -40,6 +38,7 @@ class MediaItem {
     required this.id,
     required this.title,
     required this.originalTitle,
+    this.englishTitle,
     this.posterUrl,
     this.backdropUrl,
     required this.overview,
@@ -82,65 +81,31 @@ class MediaItem {
         ? '${ApiConstants.tmdbImageOriginal}${json['backdrop_path']}'
         : poster;
 
+    final originCountries = (json['origin_country'] as List?)?.map((c) => c.toString()).toList() ?? [];
+    final origLang = (json['original_language'] as String?)?.toLowerCase();
+    final isAsianDrama = isDorama ||
+        originCountries.contains('KR') ||
+        originCountries.contains('JP') ||
+        originCountries.contains('CN') ||
+        originCountries.contains('TW') ||
+        originCountries.contains('TH') ||
+        origLang == 'ko' ||
+        origLang == 'ja' ||
+        origLang == 'zh';
+
     return MediaItem(
       id: json['id'].toString(),
       title: json['name'] ?? json['original_name'] ?? 'Sem título',
       originalTitle: json['original_name'] ?? json['name'] ?? '',
+      englishTitle: json['english_title'] as String?,
       posterUrl: poster,
       backdropUrl: backdrop,
       overview: json['overview'] ?? 'Sem sinopse disponível.',
       rating: ((json['vote_average'] ?? 0.0) as num).toDouble(),
       releaseDate: json['first_air_date'],
-      type: isDorama ? MediaTypeEnum.dorama : MediaTypeEnum.tv,
+      type: isAsianDrama ? MediaTypeEnum.dorama : MediaTypeEnum.tv,
       seasonCount: json['number_of_seasons'],
       episodeCount: json['number_of_episodes'],
-    );
-  }
-
-  // Factory para Animes do AniList GraphQL
-  factory MediaItem.fromAniList(Map<String, dynamic> json) {
-    final titleMap = json['title'] as Map<String, dynamic>?;
-    final romaji = titleMap?['romaji'] ?? '';
-    final english = titleMap?['english'] ?? '';
-    final native = titleMap?['native'] ?? '';
-
-    // Prioriza o título em inglês/romaji para visualização clara
-    final displayTitle = english.isNotEmpty ? english : (romaji.isNotEmpty ? romaji : native);
-    final searchTitle = romaji.isNotEmpty ? romaji : (english.isNotEmpty ? english : displayTitle);
-
-    final coverImage = json['coverImage']?['extraLarge'] ?? json['coverImage']?['large'];
-    final bannerImage = json['bannerImage'] ?? coverImage;
-
-    // Remove tags HTML básicas da sinopse do AniList (<br>, <i>, etc.)
-    String rawDesc = json['description'] ?? 'Sem sinopse disponível.';
-    rawDesc = rawDesc.replaceAll(RegExp(r'<[^>]*>'), '');
-
-    final rawScore = json['averageScore'];
-    final double score = rawScore != null ? (rawScore as num).toDouble() / 10.0 : 0.0;
-
-    final genresList = (json['genres'] as List<dynamic>?)
-            ?.map((g) => g.toString())
-            .toList() ??
-        [];
-
-    final startDate = json['startDate'];
-    String? formattedDate;
-    if (startDate != null && startDate['year'] != null) {
-      formattedDate = '${startDate['year']}';
-    }
-
-    return MediaItem(
-      id: json['id'].toString(),
-      title: displayTitle,
-      originalTitle: searchTitle,
-      posterUrl: coverImage,
-      backdropUrl: bannerImage,
-      overview: rawDesc,
-      rating: score,
-      releaseDate: formattedDate,
-      type: MediaTypeEnum.anime,
-      genres: genresList,
-      episodeCount: json['episodes'],
     );
   }
 }

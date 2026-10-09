@@ -10,10 +10,17 @@ class TmdbService {
   TmdbService({String? apiKey})
       : apiKey = apiKey ?? ApiConstants.defaultTmdbApiKey;
 
-  Future<List<MediaItem>> _fetchList(String endpoint, {Map<String, String>? extraParams, bool isTv = false, bool isDorama = false}) async {
+  Future<List<MediaItem>> _fetchList(
+    String endpoint, {
+    Map<String, String>? extraParams,
+    bool isTv = false,
+    bool isDorama = false,
+    int page = 1,
+  }) async {
     final queryParams = {
       'api_key': apiKey,
       'language': 'pt-BR',
+      'page': page.toString(),
       ...?extraParams,
     };
 
@@ -36,17 +43,17 @@ class TmdbService {
   }
 
   // --- FILMES ---
-  Future<List<MediaItem>> getTrendingMovies() => _fetchList('/trending/movie/week');
-  Future<List<MediaItem>> getPopularMovies() => _fetchList('/movie/popular');
-  Future<List<MediaItem>> getTopRatedMovies() => _fetchList('/movie/top_rated');
+  Future<List<MediaItem>> getTrendingMovies({int page = 1}) => _fetchList('/trending/movie/week', page: page);
+  Future<List<MediaItem>> getPopularMovies({int page = 1}) => _fetchList('/movie/popular', page: page);
+  Future<List<MediaItem>> getTopRatedMovies({int page = 1}) => _fetchList('/movie/top_rated', page: page);
 
   // --- SÉRIES ---
-  Future<List<MediaItem>> getTrendingTv() => _fetchList('/trending/tv/week', isTv: true);
-  Future<List<MediaItem>> getPopularTv() => _fetchList('/tv/popular', isTv: true);
-  Future<List<MediaItem>> getTopRatedTv() => _fetchList('/tv/top_rated', isTv: true);
+  Future<List<MediaItem>> getTrendingTv({int page = 1}) => _fetchList('/trending/tv/week', isTv: true, page: page);
+  Future<List<MediaItem>> getPopularTv({int page = 1}) => _fetchList('/tv/popular', isTv: true, page: page);
+  Future<List<MediaItem>> getTopRatedTv({int page = 1}) => _fetchList('/tv/top_rated', isTv: true, page: page);
 
   // --- DORAMAS (K-Dramas com país de origem KR e JP) ---
-  Future<List<MediaItem>> getPopularDoramas() => _fetchList(
+  Future<List<MediaItem>> getPopularDoramas({int page = 1}) => _fetchList(
         '/discover/tv',
         extraParams: {
           'with_origin_country': 'KR',
@@ -54,9 +61,10 @@ class TmdbService {
           'vote_count.gte': '20',
         },
         isDorama: true,
+        page: page,
       );
 
-  Future<List<MediaItem>> getTopRatedDoramas() => _fetchList(
+  Future<List<MediaItem>> getTopRatedDoramas({int page = 1}) => _fetchList(
         '/discover/tv',
         extraParams: {
           'with_origin_country': 'KR',
@@ -64,6 +72,7 @@ class TmdbService {
           'vote_count.gte': '100',
         },
         isDorama: true,
+        page: page,
       );
 
   // --- BUSCA GERAL ---
@@ -103,13 +112,41 @@ class TmdbService {
     final uri = Uri.parse('${ApiConstants.tmdbBaseUrl}/movie/$id').replace(queryParameters: {
       'api_key': apiKey,
       'language': 'pt-BR',
-      'append_to_response': 'credits',
+      'append_to_response': 'credits,alternative_titles,translations',
     });
 
     final response = await http.get(uri);
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       final item = MediaItem.fromTmdbMovie(json);
+
+      String? englishTitle;
+      final translations = json['translations']?['translations'] as List?;
+      if (translations != null) {
+        for (final t in translations) {
+          if (t['iso_639_1'] == 'en') {
+            final title = t['data']?['title']?.toString();
+            if (title != null && title.trim().isNotEmpty) {
+              englishTitle = title.trim();
+              break;
+            }
+          }
+        }
+      }
+      if (englishTitle == null) {
+        final altTitles = json['alternative_titles']?['titles'] as List?;
+        if (altTitles != null) {
+          for (final alt in altTitles) {
+            if (alt['iso_3166_1'] == 'US' || alt['iso_3166_1'] == 'GB') {
+              final title = alt['title']?.toString();
+              if (title != null && title.trim().isNotEmpty) {
+                englishTitle = title.trim();
+                break;
+              }
+            }
+          }
+        }
+      }
 
       final genres = (json['genres'] as List?)?.map((g) => g['name'].toString()).toList() ?? [];
       final cast = (json['credits']?['cast'] as List?)
@@ -125,6 +162,7 @@ class TmdbService {
         status: json['status'],
         genres: genres,
         cast: cast,
+        englishTitle: englishTitle,
       );
     }
     throw Exception('Falha ao obter detalhes do filme: ${response.statusCode}');
@@ -135,13 +173,41 @@ class TmdbService {
     final uri = Uri.parse('${ApiConstants.tmdbBaseUrl}/tv/$id').replace(queryParameters: {
       'api_key': apiKey,
       'language': 'pt-BR',
-      'append_to_response': 'credits',
+      'append_to_response': 'credits,alternative_titles,translations',
     });
 
     final response = await http.get(uri);
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       final item = MediaItem.fromTmdbTv(json, isDorama: isDorama);
+
+      String? englishTitle;
+      final translations = json['translations']?['translations'] as List?;
+      if (translations != null) {
+        for (final t in translations) {
+          if (t['iso_639_1'] == 'en') {
+            final name = t['data']?['name']?.toString();
+            if (name != null && name.trim().isNotEmpty) {
+              englishTitle = name.trim();
+              break;
+            }
+          }
+        }
+      }
+      if (englishTitle == null) {
+        final altTitles = json['alternative_titles']?['results'] as List?;
+        if (altTitles != null) {
+          for (final alt in altTitles) {
+            if (alt['iso_3166_1'] == 'US' || alt['iso_3166_1'] == 'GB') {
+              final title = alt['title']?.toString();
+              if (title != null && title.trim().isNotEmpty) {
+                englishTitle = title.trim();
+                break;
+              }
+            }
+          }
+        }
+      }
 
       final genres = (json['genres'] as List?)?.map((g) => g['name'].toString()).toList() ?? [];
       final cast = (json['credits']?['cast'] as List?)
@@ -162,6 +228,7 @@ class TmdbService {
         genres: genres,
         seasons: seasons,
         cast: cast,
+        englishTitle: englishTitle,
       );
     }
     throw Exception('Falha ao obter detalhes da série: ${response.statusCode}');

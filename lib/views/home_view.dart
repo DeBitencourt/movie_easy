@@ -96,7 +96,7 @@ class HomeView extends StatelessWidget {
 
               // Carrossel: Filmes em Alta
               MediaShelf(
-                title: '🔥 Filmes em Alta',
+                title: 'Filmes em Alta',
                 subtitle: 'Os lançamentos mais assistidos no mundo',
                 items: catalog.trendingMovies,
                 isLoading: catalog.isLoading,
@@ -108,7 +108,7 @@ class HomeView extends StatelessWidget {
 
               // Carrossel: Séries Populares
               MediaShelf(
-                title: '🍿 Séries em Destaque',
+                title: 'Séries em Destaque',
                 subtitle: 'Temporadas completas e episódios semanais',
                 items: catalog.trendingTv,
                 isLoading: catalog.isLoading,
@@ -120,7 +120,7 @@ class HomeView extends StatelessWidget {
 
               // Carrossel: Doramas Mais Amados
               MediaShelf(
-                title: '🌸 Doramas & K-Dramas',
+                title: 'Doramas & K-Dramas',
                 subtitle: 'Dramas asiáticos mais populares (Coreia e Japão)',
                 items: catalog.popularDoramas,
                 isLoading: catalog.isLoading,
@@ -130,21 +130,9 @@ class HomeView extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // Carrossel: Animes em Alta
-              MediaShelf(
-                title: '🎌 Animes em Alta',
-                subtitle: 'Os animes mais comentados e assistidos da temporada',
-                items: catalog.trendingAnime,
-                isLoading: catalog.isLoading,
-                onSelect: (item) => _openDetails(context, item),
-                onSeeAll: () => _openCategory(context, MediaTypeEnum.anime),
-              ),
-
-              const SizedBox(height: 12),
-
               // Carrossel: Filmes Mais Populares
               MediaShelf(
-                title: '⭐ Filmes Mais Populares',
+                title: 'Filmes Mais Populares',
                 subtitle: 'Títulos mais buscados no catálogo',
                 items: catalog.popularMovies,
                 isLoading: catalog.isLoading,
