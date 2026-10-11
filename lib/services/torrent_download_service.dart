@@ -83,24 +83,61 @@ class TorrentDownloadService {
       final item = _downloads[id];
       if (item != null) {
         final wasFinished = item.isFinished;
-        item.progress = info.progress;
+
+        // Sanitização de valores para Linux/FFI (onde numSeeds e numPeers podem vir com overflow/lixo de memória)
+        final sanitizedSeeds = info.numSeeds < 0 ? 0 : info.numSeeds;
+        final sanitizedPeers = (info.numPeers == 16384 || info.numPeers < 0) ? 0 : info.numPeers;
+
+        item.numSeeds = sanitizedSeeds;
+        item.numPeers = sanitizedPeers;
         item.downloadRate = info.downloadRate;
         item.uploadRate = info.uploadRate;
-        item.totalDone = info.totalDone;
-        item.totalWanted = info.totalWanted;
-        item.numSeeds = info.numSeeds;
-        item.numPeers = info.numPeers;
         item.isPaused = info.isPaused;
-        item.isFinished = info.isFinished;
-        item.hasMetadata = info.hasMetadata;
-        if (!info.hasMetadata && !info.isPaused && !info.isFinished) {
-          final peerCount = info.numSeeds + info.numPeers;
-          item.stateLabel = peerCount > 0
-              ? 'Baixando metadados ($peerCount pares)...'
-              : 'Localizando pares na rede DHT...';
-        } else {
-          item.stateLabel = _mapStateToPortuguese(info.state, isPaused: info.isPaused);
+
+        if (info.totalWanted > 0) {
+          item.totalWanted = info.totalWanted;
         }
+
+        if (info.totalDone > 0) {
+          item.totalDone = info.totalDone;
+        }
+
+        final isCompleteInEngine = info.isFinished ||
+            info.state == TorrentState.finished ||
+            info.state == TorrentState.seeding ||
+            (item.totalWanted > 0 && item.totalDone >= item.totalWanted) ||
+            info.progress >= 0.999;
+
+        item.hasMetadata = info.hasMetadata || info.totalDone > 0 || item.totalDone > 0;
+
+        if (isCompleteInEngine) {
+          item.isFinished = true;
+          item.progress = 1.0;
+          if (item.totalWanted > 0) {
+            item.totalDone = item.totalWanted;
+          }
+          item.stateLabel = 'Download Concluído';
+        } else {
+          item.isFinished = false;
+          if (item.totalWanted > 0 && item.totalDone > 0) {
+            item.progress = (item.totalDone / item.totalWanted).clamp(0.0, 1.0);
+          } else {
+            item.progress = info.progress.clamp(0.0, 1.0);
+          }
+
+          if (!item.hasMetadata && !item.isPaused) {
+            final peerCount = item.numSeeds + item.numPeers;
+            item.stateLabel = peerCount > 0
+                ? 'Baixando metadados ($peerCount pares)...'
+                : 'Localizando pares na rede DHT...';
+          } else if (info.state == TorrentState.checkingFiles || info.state == TorrentState.checkingResume) {
+            final checkPct = (info.progress * 100).toStringAsFixed(0);
+            item.stateLabel = 'Verificando integridade ($checkPct%)...';
+          } else {
+            item.stateLabel = _mapStateToPortuguese(info.state, isPaused: info.isPaused);
+          }
+        }
+
         if (!wasFinished && item.isFinished) {
           needsSave = true;
         }
@@ -530,7 +567,7 @@ class TorrentDownloadService {
   String? getLocalVideoFilePath(int torrentId) {
     if (torrentId < 0) {
       final item = _downloads[torrentId];
-      if (item == null || !item.isFinished) return null;
+      if (item == null) return null;
       final safeName = item.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
       final videoFile = File('${item.savePath}${Platform.pathSeparator}$safeName.ts');
       if (videoFile.existsSync()) return videoFile.path;
@@ -540,7 +577,7 @@ class TorrentDownloadService {
     if (!_isInitialized) return null;
     try {
       final item = _downloads[torrentId];
-      if (item == null || !item.isFinished) return null;
+      if (item == null) return null;
 
       // 1. Tentar obter pelo índice de arquivos do libtorrent
       final files = LibtorrentFlutter.instance.getFiles(torrentId);
@@ -553,7 +590,8 @@ class TorrentDownloadService {
         videoFiles.sort((a, b) => b.size.compareTo(a.size));
         if (videoFiles.isNotEmpty) {
           final candidatePath = '${item.savePath}${Platform.pathSeparator}${videoFiles.first.path}';
-          if (File(candidatePath).existsSync()) {
+          final f = File(candidatePath);
+          if (f.existsSync() && f.lengthSync() > 20 * 1024 * 1024) {
             return candidatePath;
           }
         }
@@ -902,31 +940,109 @@ class TorrentDownloadService {
   /// Localiza o arquivo de vídeo associado a um DownloadItem específico (mesmo após reinicialização do app).
   String? getLocalVideoFilePathForItem(DownloadItem item) {
     try {
-      if (!item.isFinished) return null;
-
       if (item.id < 0) {
         final safeName = item.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
         final videoFile = File('${item.savePath}${Platform.pathSeparator}$safeName.ts');
         if (videoFile.existsSync()) return videoFile.path;
       }
 
+      // 1. Tentar obter pelo índice nativo de arquivos do libtorrent
       if (item.id >= 0 && _isInitialized) {
         final path = getLocalVideoFilePath(item.id);
         if (path != null) return path;
       }
 
       final saveDir = Directory(item.savePath);
-      if (saveDir.existsSync()) {
-        final allFiles = saveDir.listSync(recursive: true).whereType<File>();
-        final diskVideos = allFiles.where((f) {
-          final ext = f.path.split('.').last.toLowerCase();
-          return ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts', 'm4v'].contains(ext);
-        }).toList();
+      if (!saveDir.existsSync()) return null;
 
-        if (diskVideos.isNotEmpty) {
-          diskVideos.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-          return diskVideos.first.path;
+      // 2. Tentar via parâmetro "dn" (Display Name) da URL magnetica se presente
+      final dnMatch = RegExp(r'[?&]dn=([^&]+)').firstMatch(item.magnetUrl);
+      if (dnMatch != null) {
+        try {
+          final rawDn = Uri.decodeComponent(dnMatch.group(1)!);
+          final directPath = '${item.savePath}${Platform.pathSeparator}$rawDn';
+          final directFile = File(directPath);
+          if (directFile.existsSync() && directFile.lengthSync() > 20 * 1024 * 1024) {
+            return directFile.path;
+          }
+          final directDir = Directory(directPath);
+          if (directDir.existsSync()) {
+            final filesInDn = directDir.listSync(recursive: true).whereType<File>().where((f) {
+              final ext = f.path.split('.').last.toLowerCase();
+              return ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts', 'm4v'].contains(ext) &&
+                  f.lengthSync() > 20 * 1024 * 1024;
+            }).toList();
+            if (filesInDn.isNotEmpty) {
+              filesInDn.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
+              return filesInDn.first.path;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. Busca recursiva com normalização inteligente de caracteres e pontuações
+      final allFiles = saveDir.listSync(recursive: true).whereType<File>();
+      final videoCandidates = allFiles.where((f) {
+        final ext = f.path.split('.').last.toLowerCase();
+        return ['mkv', 'mp4', 'avi', 'mov', 'webm', 'ts', 'm4v'].contains(ext) &&
+            f.lengthSync() > 20 * 1024 * 1024;
+      }).toList();
+
+      if (videoCandidates.isEmpty) return null;
+
+      String normalize(String s) => s
+          .toLowerCase()
+          .replaceAll(RegExp(r'[\.:,\-_/\\\[\]\(\)\{\}\!\\?#&]'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+
+      final normMediaTitle = normalize(item.cleanMediaTitle);
+      final tokens = normMediaTitle.split(' ').where((t) => t.length >= 3).toList();
+      final epNum = item.episodeNumber;
+      final seasonNum = item.seasonNumber;
+
+      File? bestMatch;
+      int bestScore = 0;
+
+      for (final f in videoCandidates) {
+        final normPath = normalize(f.path);
+        int score = 0;
+
+        if (normMediaTitle.isNotEmpty && normPath.contains(normMediaTitle)) {
+          score += 50;
         }
+
+        if (tokens.isNotEmpty) {
+          final matchedTokens = tokens.where((t) => normPath.contains(t)).length;
+          if (matchedTokens == tokens.length) {
+            score += 40;
+          } else if (matchedTokens >= (tokens.length * 0.7).ceil()) {
+            score += 20;
+          }
+        }
+
+        if (epNum != null) {
+          final epPattern = RegExp('(?:s0?${seasonNum ?? "\\d+"})?e0?$epNum\\b|epis[oó]dio\\s*0?$epNum\\b|0?$epNum\\b', caseSensitive: false);
+          if (epPattern.hasMatch(f.path)) {
+            score += 30;
+          } else {
+            score -= 50;
+          }
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = f;
+        }
+      }
+
+      if (bestMatch != null && bestScore >= 20) {
+        return bestMatch.path;
+      }
+
+      // 4. Se só há um único arquivo de vídeo grande no diretório e este download é o único
+      if (videoCandidates.length == 1 && _downloads.length <= 1) {
+        return videoCandidates.first.path;
       }
     } catch (_) {}
     return null;
@@ -956,13 +1072,19 @@ class TorrentDownloadService {
         if (item.infoHash.isNotEmpty) {
           final exists = _downloads.values.any((d) => d.infoHash.toUpperCase() == item.infoHash.toUpperCase());
           if (!exists) {
-            final localVideo = getLocalVideoFilePathForItem(item);
-            if (localVideo != null) {
-              item.isFinished = true;
-              item.progress = 1.0;
-              item.stateLabel = 'Download Concluído';
-              _downloads[item.id] = item;
-            } else if (!item.isFinished) {
+            if (item.isFinished) {
+              final localVideo = getLocalVideoFilePathForItem(item);
+              if (localVideo != null && File(localVideo).existsSync()) {
+                item.totalDone = File(localVideo).lengthSync();
+                if (item.totalWanted <= 0) item.totalWanted = item.totalDone;
+                _downloads[item.id] = item;
+              } else {
+                item.isFinished = false;
+                item.progress = 0.0;
+                item.totalDone = 0;
+                _downloads[item.id] = item;
+              }
+            } else {
               if (item.magnetUrl.startsWith('kisskh://') || item.infoHash.startsWith('KISSKH')) {
                 item.isPaused = true;
                 item.stateLabel = 'Pausado';
@@ -984,8 +1106,6 @@ class TorrentDownloadService {
                   _downloads[item.id] = item;
                 }
               }
-            } else {
-              _downloads[item.id] = item;
             }
           }
         }

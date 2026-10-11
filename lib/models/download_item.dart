@@ -76,6 +76,9 @@ class DownloadItem {
 
   /// Tamanho transferido vs tamanho total
   String get formattedSize {
+    if (isFinished && totalDone > 0) {
+      return _formatBytes(totalDone);
+    }
     if (!hasMetadata || totalWanted <= 0) {
       if (totalDone > 0) return _formatBytes(totalDone);
       return (numSeeds + numPeers > 0) ? 'Obtendo metadados...' : 'Buscando pares...';

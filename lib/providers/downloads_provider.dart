@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/download_item.dart';
 import '../models/library_entry.dart';
@@ -18,9 +19,9 @@ class DownloadsProvider extends ChangeNotifier {
   List<DownloadItem> get activeDownloads => _downloads.where((d) => !d.isFinished).toList();
   List<DownloadItem> get completedDownloads => _downloads.where((d) => d.isFinished).toList();
   
-  /// Itens da Biblioteca: títulos já concluídos ou presentes no disco
+  /// Itens da Biblioteca: títulos com download concluído
   List<DownloadItem> get libraryItems {
-    return _downloads.where((d) => d.isFinished || _service.getLocalVideoFilePathForItem(d) != null).toList();
+    return _downloads.where((d) => d.isFinished).toList();
   }
 
   /// Títulos agrupados na Biblioteca (filmes e séries consolidadas com seus episódios)
@@ -176,12 +177,12 @@ class DownloadsProvider extends ChangeNotifier {
     return _service.getLocalVideoFilePath(id);
   }
 
-  /// Resolve a melhor fonte para reprodução: arquivo local se concluído/presente no disco, ou URL de streaming HTTP.
+  /// Resolve a melhor fonte para reprodução: arquivo local se concluído no disco, ou URL de streaming HTTP.
   Future<String?> resolvePlaybackSource(DownloadItem item) async {
-    // 1. Tentar pegar arquivo local caso já tenha baixado completamente
+    // 1. Se o download já está concluído, reproduz o arquivo local diretamente
     if (item.isFinished) {
       final localPath = _service.getLocalVideoFilePathForItem(item);
-      if (localPath != null) {
+      if (localPath != null && File(localPath).existsSync()) {
         return localPath;
       }
     }

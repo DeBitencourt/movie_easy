@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,8 @@ import '../core/theme/app_theme.dart';
 import '../models/download_item.dart';
 import '../providers/downloads_provider.dart';
 import '../services/kisskh_service.dart';
+import '../services/player_service.dart';
+import '../services/screen_keep_alive_service.dart';
 import '../services/subtitle_translation_service.dart';
 
 enum PlayerScreenStatus {
@@ -68,18 +71,14 @@ class _PlayerViewState extends State<PlayerView> {
 
   Timer? _pollingTimer;
   StreamSubscription? _bufferingSub;
+  StreamSubscription? _playingSub;
   bool _isBuffering = false;
 
   @override
   void initState() {
     super.initState();
-    _player = Player();
-    _controller = VideoController(
-      _player,
-      configuration: const VideoControllerConfiguration(
-        enableHardwareAcceleration: true,
-      ),
-    );
+    _player = PlayerService.instance.player;
+    _controller = PlayerService.instance.controller;
 
     _bufferingSub = _player.stream.buffering.listen((buffering) {
       if (mounted) {
@@ -89,14 +88,46 @@ class _PlayerViewState extends State<PlayerView> {
       }
     });
 
+    _playingSub = _player.stream.playing.listen((isPlaying) {
+      if (isPlaying) {
+        ScreenKeepAliveService.instance.enable();
+      } else {
+        ScreenKeepAliveService.instance.disable();
+      }
+    });
+
     _startPlaybackFlow();
+  }
+
+  void _cleanupAndStop() {
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+    _bufferingSub?.cancel();
+    _bufferingSub = null;
+    _playingSub?.cancel();
+    _playingSub = null;
+    ScreenKeepAliveService.instance.disable();
+    // Para a reprodução imediatamente sem descartar o backend libmpv / texturas GL,
+    // prevenindo segfaults e fechamento indesejado do app no Linux.
+    PlayerService.instance.stop();
+  }
+
+  Future<void> _handleBack([BuildContext? ctx]) async {
+    final effectiveContext = ctx ?? context;
+    try {
+      if (isFullscreen(effectiveContext)) {
+        await exitFullscreen(effectiveContext);
+      }
+    } catch (_) {}
+    if (mounted) {
+      _cleanupAndStop();
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
-    _bufferingSub?.cancel();
-    _player.dispose();
+    _cleanupAndStop();
     super.dispose();
   }
 
@@ -111,6 +142,15 @@ class _PlayerViewState extends State<PlayerView> {
     if (widget.downloadItem != null) {
       final provider = context.read<DownloadsProvider>();
       final item = widget.downloadItem!;
+
+      // Se o download já estiver concluído, reproduzir imediatamente sem esperar metadados
+      if (item.isFinished) {
+        final localFile = provider.getLocalVideoFilePathForItem(item);
+        if (localFile != null && File(localFile).existsSync()) {
+          await _resolveAndPlay(item);
+          return;
+        }
+      }
 
       // Se o torrent ainda não tem metadados carregados
       if (!item.hasMetadata) {
@@ -261,6 +301,8 @@ class _PlayerViewState extends State<PlayerView> {
         _activeExternalSubs = List.from(externalSubtitles);
       } else if (widget.externalSubtitles != null && widget.externalSubtitles!.isNotEmpty) {
         _activeExternalSubs = List.from(widget.externalSubtitles!);
+      } else {
+        _activeExternalSubs = [];
       }
 
       // Abre a mídia (seja URL http://... ou caminho C:\... no disco)
@@ -638,7 +680,7 @@ class _PlayerViewState extends State<PlayerView> {
               ),
               const SizedBox(width: 6),
               Text(
-                '${current.numSeeds} seeds • ${current.formattedSpeed}',
+                '${current.numSeeds < 0 ? 0 : current.numSeeds} seeds • ${current.formattedSpeed}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 11,
@@ -654,19 +696,43 @@ class _PlayerViewState extends State<PlayerView> {
 
   @override
   Widget build(BuildContext context) {
+    final Widget content;
     if (_status == PlayerScreenStatus.initializing) {
-      return _buildLoadingScreen();
+      content = _buildLoadingScreen();
+    } else if (_status == PlayerScreenStatus.error) {
+      content = _buildErrorScreen();
+    } else {
+      content = _buildPlayerScreen();
     }
 
-    if (_status == PlayerScreenStatus.error) {
-      return _buildErrorScreen();
-    }
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          _cleanupAndStop();
+        }
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (mounted) {
+              _handleBack(context);
+            }
+          },
+        },
+        child: content,
+      ),
+    );
+  }
 
+  Widget _buildPlayerScreen() {
     // Configuração dos controles desktop e mobile do media_kit
     final topBar = [
-      MaterialDesktopCustomButton(
-        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
-        onPressed: () => Navigator.pop(context),
+      Builder(
+        builder: (btnCtx) => MaterialDesktopCustomButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
+          onPressed: () => _handleBack(btnCtx),
+        ),
       ),
       const SizedBox(width: 8),
       Expanded(
@@ -730,9 +796,11 @@ class _PlayerViewState extends State<PlayerView> {
 
     // Mobile equivalentes
     final mobileTopBar = [
-      MaterialCustomButton(
-        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
-        onPressed: () => Navigator.pop(context),
+      Builder(
+        builder: (btnCtx) => MaterialCustomButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
+          onPressed: () => _handleBack(btnCtx),
+        ),
       ),
       const SizedBox(width: 8),
       Expanded(
@@ -800,6 +868,7 @@ class _PlayerViewState extends State<PlayerView> {
                 controller: _controller,
                 controls: AdaptiveVideoControls,
                 fit: _videoFit,
+                wakelock: false, // Gerenciado confiavelmente por ScreenKeepAliveService
                 subtitleViewConfiguration: const SubtitleViewConfiguration(
                   style: TextStyle(
                     height: 1.4,
@@ -855,7 +924,7 @@ class _PlayerViewState extends State<PlayerView> {
           if (widget.downloadItem != null) ...[
             const SizedBox(height: 4),
             Text(
-              '${widget.downloadItem!.numSeeds} seeds • ${widget.downloadItem!.formattedSpeed}',
+              '${widget.downloadItem!.numSeeds < 0 ? 0 : widget.downloadItem!.numSeeds} seeds • ${widget.downloadItem!.formattedSpeed}',
               style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
             ),
           ],
@@ -872,7 +941,7 @@ class _PlayerViewState extends State<PlayerView> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => _handleBack(),
         ),
       ),
       body: Center(
@@ -938,7 +1007,7 @@ class _PlayerViewState extends State<PlayerView> {
 
               const SizedBox(height: 28),
               OutlinedButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => _handleBack(),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppTheme.textMuted,
                   side: const BorderSide(color: AppTheme.border),
@@ -961,7 +1030,7 @@ class _PlayerViewState extends State<PlayerView> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => _handleBack(),
         ),
       ),
       body: Center(
@@ -991,7 +1060,7 @@ class _PlayerViewState extends State<PlayerView> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => _handleBack(),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.textPrimary,
                       side: const BorderSide(color: AppTheme.border),

@@ -202,8 +202,8 @@ class ComandoTorrentsService {
         }
       }
 
-      // Se a query era específica para a temporada e encontramos posts válidos, podemos parar
-      if (season != null && validPosts.isNotEmpty) {
+      // Se a query era específica para a temporada e encontramos posts válidos, ou já temos posts suficientes, podemos parar
+      if ((season != null && validPosts.isNotEmpty) || validPosts.length >= 4) {
         break;
       }
     }
@@ -212,15 +212,18 @@ class ComandoTorrentsService {
       return [];
     }
 
-    // Extrair torrents dos posts selecionados
+    // Extrair torrents dos posts selecionados em paralelo para máxima velocidade
     final allTorrents = <TorrentItem>[];
-    for (final post in validPosts.take(3)) {
-      final items = await getTorrentsFromPost(
+    final postFutures = validPosts.take(3).map(
+      (post) => getTorrentsFromPost(
         post.url,
         postTitle: post.title,
         targetSeason: season,
         targetEpisode: episode,
-      );
+      ),
+    );
+    final results = await Future.wait(postFutures);
+    for (final items in results) {
       allTorrents.addAll(items);
     }
 

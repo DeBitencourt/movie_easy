@@ -47,6 +47,9 @@ dependencies:
   media_kit_libs_windows_video: ^1.0.11
   encrypt: ^5.0.3
   window_manager: ^0.5.2
+  media_kit_libs_linux: ^1.2.1
+  wakelock_plus: ^1.8.1
+  dbus: ^0.8.0
 
 dev_dependencies:
   flutter_test:

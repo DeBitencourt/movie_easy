@@ -290,23 +290,33 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    icon: Icon(
-                      item.isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                      color: AppTheme.textPrimary,
+                  if (!item.isFinished)
+                    IconButton(
+                      icon: Icon(
+                        item.isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                        color: AppTheme.textPrimary,
+                      ),
+                      tooltip: item.isPaused ? 'Retomar' : 'Pausar',
+                      onPressed: () {
+                        if (item.isPaused) {
+                          provider.resumeDownload(item.id);
+                        } else {
+                          provider.pauseDownload(item.id);
+                        }
+                      },
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.folder_open_rounded, color: AppTheme.textSecondary),
+                      tooltip: 'Abrir pasta do arquivo',
+                      onPressed: () {
+                        final local = provider.getLocalVideoFilePathForItem(item);
+                        provider.openDownloadFolder(filePath: local);
+                      },
                     ),
-                    tooltip: item.isPaused ? 'Retomar' : 'Pausar',
-                    onPressed: () {
-                      if (item.isPaused) {
-                        provider.resumeDownload(item.id);
-                      } else {
-                        provider.pauseDownload(item.id);
-                      }
-                    },
-                  ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: AppTheme.textMuted),
-                    tooltip: 'Cancelar',
+                    tooltip: item.isFinished ? 'Remover' : 'Cancelar',
                     onPressed: () => _confirmCancel(item, provider),
                   ),
                 ],
@@ -322,7 +332,7 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
             child: LinearProgressIndicator(
               value: (!item.hasMetadata && !item.isPaused && !item.isFinished)
                   ? null
-                  : item.progress.clamp(0.0, 1.0),
+                  : (item.isFinished ? 1.0 : item.progress.clamp(0.0, 1.0)),
               backgroundColor: AppTheme.surface,
               valueColor: AlwaysStoppedAnimation<Color>(
                 item.isFinished
@@ -343,7 +353,7 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
             children: [
               Text(
                 item.hasMetadata
-                    ? '${item.formattedProgress} • ${item.formattedSize}'
+                    ? (item.isFinished ? item.formattedSize : '${item.formattedProgress} • ${item.formattedSize}')
                     : item.formattedSize,
                 style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
               ),
@@ -361,8 +371,8 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
                       ),
                     Text(
                       item.hasMetadata
-                          ? '${item.numSeeds} seeds • ${item.formattedEta}'
-                          : '${item.numSeeds} seeds • ${item.numPeers} peers',
+                          ? '${item.numSeeds < 0 ? 0 : item.numSeeds} seeds • ${item.formattedEta}'
+                          : '${item.numSeeds < 0 ? 0 : item.numSeeds} seeds • ${item.numPeers < 0 ? 0 : item.numPeers} peers',
                       style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
                     ),
                   ] else if (item.isFinished) ...[
