@@ -276,7 +276,7 @@ class _TorrentResolverSheetState extends State<TorrentResolverSheet> {
             const Icon(Icons.download_done_rounded, color: AppTheme.badgeGreen, size: 20),
             const SizedBox(width: 8),
             Expanded(
-              child: Text('Download de "${torrent.title}" iniciado! Acompanhe na aba Downloads.'),
+              child: Text('Download de "${widget.item.title} [${torrent.quality}]" iniciado! Acompanhe na aba Downloads.'),
             ),
           ],
         ),

@@ -268,11 +268,14 @@ class _LibrarySeriesViewState extends State<LibrarySeriesView> {
                       ),
                     ),
 
-                  // Botão: Excluir Série Completa
+                  // Botão: Excluir Todos os Episódios da Série
                   OutlinedButton.icon(
                     onPressed: () => _confirmDeleteSeries(context, currentEntry, downloads),
-                    icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
-                    label: const Text('Excluir Série', style: TextStyle(color: Colors.redAccent)),
+                    icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                    label: Text(
+                      currentEntry.isSeries ? 'Excluir Todos os Episódios' : 'Excluir Filme',
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: Colors.redAccent.withOpacity(0.5)),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -636,7 +639,10 @@ class _LibrarySeriesViewState extends State<LibrarySeriesView> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Excluir Série Completa', style: TextStyle(color: AppTheme.textPrimary, fontSize: 17)),
+        title: Text(
+          series.isSeries ? 'Excluir Todos os Episódios' : 'Excluir da Biblioteca',
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 17),
+        ),
         content: Text(
           'Deseja realmente excluir "${series.title}" e todos os seus ${series.episodeCount} episódios da biblioteca?',
           style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/media_item.dart';
+import '../providers/watch_later_provider.dart';
 import 'custom_shimmer.dart';
 
 class MediaCard extends StatefulWidget {
@@ -26,6 +28,8 @@ class _MediaCardState extends State<MediaCard> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    final watchLater = context.watch<WatchLaterProvider>();
+    final isSaved = watchLater.isSaved(item.id);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -166,6 +170,59 @@ class _MediaCardState extends State<MediaCard> {
                             ),
                           ),
                         ),
+
+                        // Botão Rápido de Assistir Mais Tarde (Bottom-Right do poster)
+                        if (isSaved || _isHovered)
+                          Positioned(
+                            bottom: 6,
+                            right: 6,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () async {
+                                  final added = await context
+                                      .read<WatchLaterProvider>()
+                                      .toggleWatchLater(item);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(added
+                                            ? '"${item.title}" adicionado a Assistir Mais Tarde.'
+                                            : '"${item.title}" removido de Assistir Mais Tarde.'),
+                                        backgroundColor: AppTheme.card,
+                                        behavior: SnackBarBehavior.floating,
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: isSaved
+                                        ? AppTheme.primary
+                                        : Colors.black.withOpacity(0.75),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isSaved
+                                          ? AppTheme.primary
+                                          : Colors.white24,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    isSaved
+                                        ? Icons.bookmark_rounded
+                                        : Icons.bookmark_outline_rounded,
+                                    size: 13,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),

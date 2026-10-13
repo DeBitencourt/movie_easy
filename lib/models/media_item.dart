@@ -108,4 +108,46 @@ class MediaItem {
       episodeCount: json['number_of_episodes'],
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'originalTitle': originalTitle,
+    'englishTitle': englishTitle,
+    'posterUrl': posterUrl,
+    'backdropUrl': backdropUrl,
+    'overview': overview,
+    'rating': rating,
+    'releaseDate': releaseDate,
+    'type': type.name,
+    'genres': genres,
+    'seasonCount': seasonCount,
+    'episodeCount': episodeCount,
+  };
+
+  factory MediaItem.fromJson(Map<String, dynamic> json) {
+    MediaTypeEnum parsedType = MediaTypeEnum.movie;
+    if (json['type'] != null) {
+      try {
+        parsedType = MediaTypeEnum.values.firstWhere((t) => t.name == json['type']);
+      } catch (_) {}
+    }
+
+    return MediaItem(
+      id: json['id']?.toString() ?? '',
+      title: json['title'] as String? ?? 'Sem título',
+      originalTitle: json['originalTitle'] as String? ?? '',
+      englishTitle: json['englishTitle'] as String?,
+      posterUrl: json['posterUrl'] as String?,
+      backdropUrl: json['backdropUrl'] as String?,
+      overview: json['overview'] as String? ?? '',
+      rating: ((json['rating'] ?? 0.0) as num).toDouble(),
+      releaseDate: json['releaseDate'] as String?,
+      type: parsedType,
+      genres: (json['genres'] as List?)?.map((g) => g.toString()).toList() ?? const [],
+      seasonCount: json['seasonCount'] as int?,
+      episodeCount: json['episodeCount'] as int?,
+    );
+  }
 }
+

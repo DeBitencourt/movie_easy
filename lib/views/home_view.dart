@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/media_item.dart';
 import '../providers/catalog_provider.dart';
+import '../providers/watch_later_provider.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/media_shelf.dart';
 import 'category_view.dart';
 import 'details_view.dart';
+import 'watch_later_view.dart';
 
 class HomeView extends StatelessWidget {
   const HomeView({super.key});
@@ -14,6 +16,7 @@ class HomeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final catalog = context.watch<CatalogProvider>();
+    final watchLater = context.watch<WatchLaterProvider>();
 
     if (catalog.isLoading && catalog.trendingMovies.isEmpty) {
       return const Scaffold(
@@ -93,6 +96,23 @@ class HomeView extends StatelessWidget {
                   );
                 },
               ),
+
+              // Carrossel: Assistir Mais Tarde (se houver itens salvos)
+              if (watchLater.isNotEmpty) ...[
+                MediaShelf(
+                  title: 'Assistir Mais Tarde',
+                  subtitle: 'Seus filmes, séries e doramas salvos',
+                  items: watchLater.mediaList,
+                  onSelect: (item) => _openDetails(context, item),
+                  onSeeAll: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WatchLaterView()),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // Carrossel: Filmes em Alta
               MediaShelf(

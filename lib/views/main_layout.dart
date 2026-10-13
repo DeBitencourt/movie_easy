@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/media_item.dart';
 import '../providers/downloads_provider.dart';
+import '../providers/watch_later_provider.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/custom_title_bar.dart';
 import 'home_view.dart';
@@ -11,6 +12,7 @@ import 'downloads_view.dart';
 import 'library_view.dart';
 import 'search_view.dart';
 import 'settings_view.dart';
+import 'watch_later_view.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -32,10 +34,11 @@ class _MainLayoutState extends State<MainLayout> {
       const CategoryView(type: MediaTypeEnum.movie), // 1
       const CategoryView(type: MediaTypeEnum.tv), // 2
       const CategoryView(type: MediaTypeEnum.dorama), // 3
-      LibraryView(onExploreCatalog: () => setState(() => _currentIndex = 0)), // 4
-      const DownloadsView(), // 5
-      const SearchView(), // 6
-      const SettingsView(), // 7
+      WatchLaterView(onExploreCatalog: () => setState(() => _currentIndex = 0)), // 4
+      LibraryView(onExploreCatalog: () => setState(() => _currentIndex = 0)), // 5
+      const DownloadsView(), // 6
+      const SearchView(), // 7
+      const SettingsView(), // 8
     ];
   }
 
@@ -44,6 +47,7 @@ class _MainLayoutState extends State<MainLayout> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 800;
     final downloads = context.watch<DownloadsProvider>();
+    final watchLater = context.watch<WatchLaterProvider>();
 
     final mainWidget = isDesktop
         ? Scaffold(
@@ -55,7 +59,7 @@ class _MainLayoutState extends State<MainLayout> {
                   child: Row(
                     children: [
                       // Sidebar Lateral para Desktop
-                      _buildDesktopSidebar(downloads),
+                      _buildDesktopSidebar(downloads, watchLater),
                       // Divisor sutil
                       Container(width: 1, color: AppTheme.border),
                       // Conteúdo Principal
@@ -100,6 +104,21 @@ class _MainLayoutState extends State<MainLayout> {
                     icon: Icon(Icons.movie_outlined, color: AppTheme.textSecondary),
                     selectedIcon: Icon(Icons.movie_rounded, color: AppTheme.primary),
                     label: 'Filmes',
+                  ),
+                  NavigationDestination(
+                    icon: Badge(
+                      isLabelVisible: watchLater.count > 0,
+                      label: Text('${watchLater.count}'),
+                      backgroundColor: AppTheme.primary,
+                      child: const Icon(Icons.bookmark_outline_rounded, color: AppTheme.textSecondary),
+                    ),
+                    selectedIcon: Badge(
+                      isLabelVisible: watchLater.count > 0,
+                      label: Text('${watchLater.count}'),
+                      backgroundColor: AppTheme.primary,
+                      child: const Icon(Icons.bookmark_rounded, color: AppTheme.primary),
+                    ),
+                    label: 'Salvos',
                   ),
                   NavigationDestination(
                     icon: Badge(
@@ -150,15 +169,17 @@ class _MainLayoutState extends State<MainLayout> {
   int _getMobileSelectedIndex() {
     switch (_currentIndex) {
       case 0:
-        return 0;
+        return 0; // Início
       case 1:
-        return 1;
+        return 1; // Filmes
       case 4:
-        return 2;
+        return 2; // Salvos (Assistir Mais Tarde)
       case 5:
-        return 3;
+        return 3; // Biblioteca
       case 6:
-        return 4;
+        return 4; // Downloads
+      case 7:
+        return 5; // Buscar
       default:
         return 0;
     }
@@ -171,17 +192,19 @@ class _MainLayoutState extends State<MainLayout> {
       case 1:
         return 1; // Filmes
       case 2:
-        return 4; // Biblioteca
+        return 4; // Assistir Mais Tarde
       case 3:
-        return 5; // Downloads
+        return 5; // Biblioteca
       case 4:
-        return 6; // Busca
+        return 6; // Downloads
+      case 5:
+        return 7; // Buscar
       default:
         return 0;
     }
   }
 
-  Widget _buildDesktopSidebar(DownloadsProvider downloads) {
+  Widget _buildDesktopSidebar(DownloadsProvider downloads, WatchLaterProvider watchLater) {
     return Container(
       width: 230,
       color: AppTheme.surface,
@@ -219,18 +242,24 @@ class _MainLayoutState extends State<MainLayout> {
 
                   _buildSidebarItem(
                     4,
+                    Icons.bookmark_rounded,
+                    'Assistir Mais Tarde',
+                    badgeText: watchLater.count > 0 ? '${watchLater.count}' : null,
+                  ),
+                  _buildSidebarItem(
+                    5,
                     Icons.video_library_rounded,
                     'Biblioteca',
                     badgeText: downloads.libraryTitlesCount > 0 ? '${downloads.libraryTitlesCount}' : null,
                   ),
                   _buildSidebarItem(
-                    5,
+                    6,
                     Icons.download_rounded,
                     'Downloads',
                     badgeText: downloads.activeCount > 0 ? '${downloads.activeCount}' : null,
                   ),
-                  _buildSidebarItem(6, Icons.search_rounded, 'Buscar'),
-                  _buildSidebarItem(7, Icons.settings_rounded, 'Configurações'),
+                  _buildSidebarItem(7, Icons.search_rounded, 'Buscar'),
+                  _buildSidebarItem(8, Icons.settings_rounded, 'Configurações'),
                 ],
               ),
             ),

@@ -275,43 +275,78 @@ class ComandoTorrentsService {
     final parent = element.parent;
     final prev = parent?.previousElementSibling;
 
-    var combinedText = '${prev?.text ?? ''} ${parent?.text ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // O texto próprio do parágrafo onde o link está contido,
+    // removendo o texto da âncora ("Download Magnet", "Baixar Magnet", etc.)
+    final anchorText = element.text;
+    String ownText = parent?.text ?? '';
+    if (anchorText.isNotEmpty) {
+      ownText = ownText.replaceAll(anchorText, '');
+    }
+    ownText = ownText
+        .replaceAll(RegExp(r'download\s*magnet', caseSensitive: false), '')
+        .replaceAll(RegExp(r'baixar\s*magnet', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\bmagnet\b', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
 
-    // Extração de Qualidade
+    // Determinar se o elemento anterior (prev) é um cabeçalho/contexto de áudio legítimo
+    // (ex: "DUAL ÁUDIO", "DUAL ÁUDIO – SEM COMPACTAÇÃO"), ou se é outro parágrafo de torrent
+    String categoryPrefix = '';
+    if (prev != null) {
+      final hasMagnetInPrev = prev.querySelector('a[href^="magnet:?"]') != null;
+      final prevText = prev.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final hasDownloadWord = RegExp(r'download|baixar|magnet', caseSensitive: false).hasMatch(prevText);
+      final hasSize = RegExp(r'\b\d+(?:\.\d+)?\s*(?:GB|MB)\b', caseSensitive: false).hasMatch(prevText);
+
+      // Só usamos como cabeçalho se NÃO tiver link magnet, NÃO for outro torrent e for curto (ex: categoria)
+      if (!hasMagnetInPrev && !hasDownloadWord && !hasSize && prevText.length <= 60 && prevText.isNotEmpty) {
+        categoryPrefix = prevText;
+      }
+    }
+
+    final fullContext = categoryPrefix.isNotEmpty ? '$categoryPrefix $ownText' : ownText;
+
+    // Extração de Qualidade (priorizando o texto próprio do item)
     String quality = 'HD';
-    if (RegExp(r'4K|2160p', caseSensitive: false).hasMatch(combinedText)) {
+    if (RegExp(r'4K|2160p', caseSensitive: false).hasMatch(ownText)) {
       quality = '4K';
-    } else if (RegExp(r'1080p', caseSensitive: false).hasMatch(combinedText)) {
+    } else if (RegExp(r'1080p', caseSensitive: false).hasMatch(ownText)) {
       quality = '1080p';
-    } else if (RegExp(r'720p', caseSensitive: false).hasMatch(combinedText)) {
+    } else if (RegExp(r'720p', caseSensitive: false).hasMatch(ownText)) {
       quality = '720p';
-    } else if (RegExp(r'480p', caseSensitive: false).hasMatch(combinedText)) {
+    } else if (RegExp(r'480p', caseSensitive: false).hasMatch(ownText)) {
       quality = '480p';
+    } else if (RegExp(r'4K|2160p', caseSensitive: false).hasMatch(fullContext)) {
+      quality = '4K';
+    } else if (RegExp(r'1080p', caseSensitive: false).hasMatch(fullContext)) {
+      quality = '1080p';
+    } else if (RegExp(r'720p', caseSensitive: false).hasMatch(fullContext)) {
+      quality = '720p';
     }
 
     // Extração de Áudio
-    final isDubbed = RegExp(r'dual|dublado', caseSensitive: false).hasMatch(combinedText) ||
+    final isDubbed = RegExp(r'dual|dublado', caseSensitive: false).hasMatch(fullContext) ||
         RegExp(r'dual|dublado', caseSensitive: false).hasMatch(postTitle);
-    final isSubbed = RegExp(r'legendado|sub', caseSensitive: false).hasMatch(combinedText) ||
-        RegExp(r'dual', caseSensitive: false).hasMatch(combinedText);
+    final isSubbed = RegExp(r'legendado|sub', caseSensitive: false).hasMatch(fullContext) ||
+        RegExp(r'dual', caseSensitive: false).hasMatch(fullContext);
 
-    // Extração de Tamanho
+    // Extração de Tamanho (extraindo estritamente do próprio texto do item)
     final sizeMatch = RegExp(
-      r'\((\d+(?:\.\d+)?\s*(?:GB|MB))\)|\|\s*\(?(\d+(?:\.\d+)?\s*(?:GB|MB))\)?',
+      r'\((\d+(?:\.\d+)?\s*(?:GB|MB))\)|\|\s*\(?(\d+(?:\.\d+)?\s*(?:GB|MB))\)?|\b(\d+(?:\.\d+)?\s*(?:GB|MB))\b',
       caseSensitive: false,
-    ).firstMatch(combinedText);
-    final size = sizeMatch != null ? (sizeMatch.group(1) ?? sizeMatch.group(2)) : null;
+    ).firstMatch(ownText.isNotEmpty ? ownText : fullContext);
+    final size = sizeMatch != null ? (sizeMatch.group(1) ?? sizeMatch.group(2) ?? sizeMatch.group(3)) : null;
 
     // Formato de arquivo
     String? format;
-    if (RegExp(r'mkv', caseSensitive: false).hasMatch(combinedText)) {
+    if (RegExp(r'mkv', caseSensitive: false).hasMatch(fullContext)) {
       format = 'MKV';
-    } else if (RegExp(r'mp4', caseSensitive: false).hasMatch(combinedText)) {
+    } else if (RegExp(r'mp4', caseSensitive: false).hasMatch(fullContext)) {
       format = 'MP4';
     }
 
     // Extração de Episódio
-    final epMatch = RegExp(r'(?:Epis[oó]dio|EP|E)\s*0?(\d+)', caseSensitive: false).firstMatch(combinedText);
+    final epMatch = RegExp(r'(?:Epis[oó]dio|EP|E)\s*0?(\d+)', caseSensitive: false).firstMatch(fullContext);
     final epNumber = epMatch != null ? int.tryParse(epMatch.group(1)!) : null;
 
     // Filtro estrito se o usuário solicitou um episódio específico
@@ -322,7 +357,7 @@ class ComandoTorrentsService {
       }
       if (epNumber == null) {
         // Se não tem número de episódio explícito, só mantemos se for "Temporada Completa"
-        final isPack = RegExp(r'completa|pack', caseSensitive: false).hasMatch(combinedText) ||
+        final isPack = RegExp(r'completa|pack', caseSensitive: false).hasMatch(fullContext) ||
             RegExp(r'completa|pack', caseSensitive: false).hasMatch(postTitle);
         if (!isPack) {
           return null;
@@ -331,16 +366,26 @@ class ComandoTorrentsService {
     }
 
     // Formatar label mais limpo para exibição
-    String displayLabel = combinedText;
+    String displayLabel;
     if (epNumber != null) {
       displayLabel = 'Episódio $epNumber [$quality]${size != null ? ' • $size' : ''}';
-    } else if (RegExp(r'completa', caseSensitive: false).hasMatch(combinedText)) {
+    } else if (RegExp(r'completa', caseSensitive: false).hasMatch(fullContext)) {
       displayLabel = 'Temporada Completa [$quality]${size != null ? ' • $size' : ''}';
+    } else {
+      if (ownText.isNotEmpty) {
+        if (categoryPrefix.isNotEmpty && !ownText.toLowerCase().contains(categoryPrefix.toLowerCase())) {
+          displayLabel = '$categoryPrefix • $ownText';
+        } else {
+          displayLabel = ownText;
+        }
+      } else {
+        displayLabel = postTitle;
+      }
     }
 
     return TorrentItem(
       title: postTitle,
-      rawLabel: displayLabel.isNotEmpty ? displayLabel : combinedText,
+      rawLabel: displayLabel.isNotEmpty ? displayLabel : postTitle,
       magnetUrl: enhancedMagnet,
       infoHash: TorrentItem.extractInfoHash(rawMagnet),
       quality: quality,

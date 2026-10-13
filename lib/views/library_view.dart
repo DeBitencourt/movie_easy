@@ -154,17 +154,35 @@ class _LibraryViewState extends State<LibraryView> {
                           ),
                         ),
 
-                        // Botão para abrir pasta no Windows Explorer
-                        OutlinedButton.icon(
-                          onPressed: () => downloads.openDownloadFolder(),
-                          icon: const Icon(Icons.folder_open_rounded, size: 18),
-                          label: const Text('Abrir Pasta'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.textPrimary,
-                            side: const BorderSide(color: AppTheme.border),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
+                        // Ações da Biblioteca (Excluir Todos os Episódios / Abrir Pasta)
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (allEntries.isNotEmpty)
+                              OutlinedButton.icon(
+                                onPressed: () => _confirmDeleteAllLibrary(downloads),
+                                icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                                label: const Text('Excluir Todos os Episódios', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: Colors.redAccent.withOpacity(0.5)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                            OutlinedButton.icon(
+                              onPressed: () => downloads.openDownloadFolder(),
+                              icon: const Icon(Icons.folder_open_rounded, size: 18),
+                              label: const Text('Abrir Pasta'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.textPrimary,
+                                side: const BorderSide(color: AppTheme.border),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -721,6 +739,57 @@ class _LibraryViewState extends State<LibraryView> {
               foregroundColor: Colors.white,
             ),
             child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteAllLibrary(DownloadsProvider downloads) {
+    final epCount = downloads.libraryItems.length;
+    final titlesCount = downloads.libraryTitlesCount;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
+            SizedBox(width: 10),
+            Text('Excluir Todos os Episódios', style: TextStyle(color: AppTheme.textPrimary, fontSize: 17)),
+          ],
+        ),
+        content: Text(
+          'Deseja realmente excluir todos os episódios e vídeos da biblioteca ($epCount arquivo${epCount == 1 ? '' : 's'} em $titlesCount título${titlesCount == 1 ? '' : 's'}) e liberar ${downloads.totalLibraryDiskUsage} de espaço em disco?\n\nEsta ação apagará permanentemente os arquivos locais do computador.',
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: AppTheme.textMuted)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await downloads.deleteAllLibraryItems(deleteFiles: true);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Todos os episódios e vídeos da biblioteca foram excluídos.'),
+                    backgroundColor: Colors.redAccent,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.delete_forever_rounded, size: 18),
+            label: const Text('Excluir Tudo'),
           ),
         ],
       ),

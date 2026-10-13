@@ -6,11 +6,13 @@ import '../models/media_item.dart';
 import '../models/media_details.dart';
 import '../models/torrent_item.dart';
 import '../providers/downloads_provider.dart';
+import '../providers/watch_later_provider.dart';
 import '../services/tmdb_service.dart';
 import '../services/kisskh_service.dart';
 import '../services/comando_torrents_service.dart';
 import '../services/pirate_bay_service.dart';
 import '../widgets/torrent_resolver_sheet.dart';
+import 'watch_later_view.dart';
 
 class DetailsView extends StatefulWidget {
   final MediaItem item;
@@ -126,6 +128,8 @@ class _DetailsViewState extends State<DetailsView> {
     final media = _details?.item ?? widget.item;
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 800;
+    final watchLater = context.watch<WatchLaterProvider>();
+    final isSaved = watchLater.isSaved(media.id);
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -143,6 +147,23 @@ class _DetailsViewState extends State<DetailsView> {
               ),
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: IconButton(
+                  tooltip: isSaved ? 'Remover de Assistir Mais Tarde' : 'Salvar em Assistir Mais Tarde',
+                  icon: CircleAvatar(
+                    backgroundColor: Colors.black54,
+                    child: Icon(
+                      isSaved ? Icons.bookmark_added_rounded : Icons.bookmark_add_outlined,
+                      color: isSaved ? AppTheme.primary : Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  onPressed: () => _toggleWatchLater(context, media),
+                ),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 fit: StackFit.expand,
@@ -285,25 +306,55 @@ class _DetailsViewState extends State<DetailsView> {
 
                   const SizedBox(height: 20),
 
-                  // Botão de Busca de Torrents Principal
-                  SizedBox(
-                    width: isDesktop ? 300 : double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showTorrentModal(),
-                      icon: const Icon(Icons.download_rounded, size: 22),
-                      label: Text(
-                        media.type == MediaTypeEnum.movie
-                            ? 'Buscar Torrent Dublado'
-                            : 'Opções de Download / Torrent',
+                  // Ações Principais: Busca de Torrents e Assistir Mais Tarde
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(
+                        width: isDesktop ? 280 : double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _showTorrentModal(),
+                          icon: const Icon(Icons.download_rounded, size: 22),
+                          label: Text(
+                            media.type == MediaTypeEnum.movie
+                                ? 'Buscar Torrent Dublado'
+                                : 'Opções de Download / Torrent',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 4,
+                          ),
+                        ),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 4,
+                      SizedBox(
+                        width: isDesktop ? 220 : double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _toggleWatchLater(context, media),
+                          icon: Icon(
+                            isSaved ? Icons.bookmark_added_rounded : Icons.bookmark_add_outlined,
+                            size: 20,
+                            color: isSaved ? AppTheme.primary : AppTheme.textPrimary,
+                          ),
+                          label: Text(isSaved ? 'Salvo na Lista' : 'Assistir Mais Tarde'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: isSaved ? AppTheme.primary : AppTheme.textPrimary,
+                            backgroundColor: isSaved
+                                ? AppTheme.primary.withOpacity(0.12)
+                                : AppTheme.card.withOpacity(0.6),
+                            side: BorderSide(
+                              color: isSaved ? AppTheme.primary : AppTheme.border,
+                              width: 1.2,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
 
                   const SizedBox(height: 24),
@@ -516,6 +567,44 @@ class _DetailsViewState extends State<DetailsView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _toggleWatchLater(BuildContext context, MediaItem media) async {
+    final watchLater = context.read<WatchLaterProvider>();
+    final added = await watchLater.toggleWatchLater(media);
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added
+              ? '"${media.title}" adicionado a Assistir Mais Tarde.'
+              : '"${media.title}" removido de Assistir Mais Tarde.',
+        ),
+        backgroundColor: AppTheme.card,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        action: added
+            ? SnackBarAction(
+                label: 'Ver Lista',
+                textColor: AppTheme.primary,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const WatchLaterView()),
+                  );
+                },
+              )
+            : SnackBarAction(
+                label: 'Desfazer',
+                textColor: AppTheme.primary,
+                onPressed: () {
+                  watchLater.addToWatchLater(media);
+                },
+              ),
       ),
     );
   }

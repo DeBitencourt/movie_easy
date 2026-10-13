@@ -50,6 +50,7 @@ dependencies:
   media_kit_libs_linux: ^1.2.1
   wakelock_plus: ^1.8.1
   dbus: ^0.8.0
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:

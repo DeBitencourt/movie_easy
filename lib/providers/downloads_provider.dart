@@ -146,6 +146,26 @@ class DownloadsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Remove todos os downloads (ativos e concluídos) e seus arquivos associados
+  Future<void> removeAllDownloads({bool deleteFiles = true}) async {
+    await _service.removeAllDownloads(deleteFiles: deleteFiles);
+    notifyListeners();
+  }
+
+  /// Exclui todos os episódios e mídias salvos na biblioteca e apaga os arquivos do computador
+  Future<void> deleteAllLibraryItems({bool deleteFiles = true}) async {
+    final entries = List<LibraryEntry>.from(libraryEntries);
+    for (final entry in entries) {
+      if (entry.isSeries) {
+        await deleteSeries(entry, deleteFiles: deleteFiles);
+      } else {
+        await cancelDownload(entry.firstEpisode.id, deleteFiles: deleteFiles);
+      }
+    }
+    await _service.deleteAllLibraryItems(deleteFiles: deleteFiles);
+    notifyListeners();
+  }
+
   /// Abre a pasta no explorador onde os episódios da série estão salvos
   Future<void> openSeriesFolder(LibraryEntry entry) async {
     for (final ep in entry.episodes) {

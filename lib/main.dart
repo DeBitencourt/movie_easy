@@ -8,6 +8,7 @@ import 'core/theme/app_theme.dart';
 import 'providers/catalog_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/downloads_provider.dart';
+import 'providers/watch_later_provider.dart';
 import 'views/main_layout.dart';
 
 void main() async {
@@ -49,6 +50,9 @@ class MovieEasyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => DownloadsProvider()..init(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => WatchLaterProvider()..init(),
         ),
       ],
       child: MaterialApp(

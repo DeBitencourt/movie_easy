@@ -81,29 +81,50 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
                     ),
                   ),
 
-                  // Pill de velocidade global
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.arrow_downward_rounded, color: AppTheme.badgeGreen, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          downloads.totalDownloadSpeed,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                  // Ações do Cabeçalho (Velocidade Global e Remover Todos)
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      // Pill de velocidade global
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.arrow_downward_rounded, color: AppTheme.badgeGreen, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              downloads.totalDownloadSpeed,
+                              style: const TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Botão Remover Todos os Downloads
+                      if (downloads.allDownloads.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () => _confirmRemoveAllDownloads(downloads),
+                          icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
+                          label: const Text('Remover Todos', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: Colors.redAccent.withOpacity(0.5)),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                           ),
                         ),
-                      ],
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -476,6 +497,56 @@ class _DownloadsViewState extends State<DownloadsView> with SingleTickerProvider
               foregroundColor: Colors.white,
             ),
             child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRemoveAllDownloads(DownloadsProvider provider) {
+    final count = provider.allDownloads.length;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_sweep_rounded, color: Colors.redAccent, size: 24),
+            SizedBox(width: 10),
+            Text('Remover Todos os Downloads', style: TextStyle(color: AppTheme.textPrimary, fontSize: 17)),
+          ],
+        ),
+        content: Text(
+          'Deseja cancelar todos os $count downloads e excluir permanentemente todos os arquivos do computador?\n\nEsta ação não poderá ser desfeita.',
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: AppTheme.textMuted)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await provider.removeAllDownloads(deleteFiles: true);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Todos os downloads foram removidos com sucesso.'),
+                    backgroundColor: Colors.redAccent,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.delete_forever_rounded, size: 18),
+            label: const Text('Remover Tudo'),
           ),
         ],
       ),

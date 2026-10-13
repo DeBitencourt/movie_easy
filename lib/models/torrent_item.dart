@@ -40,6 +40,25 @@ class TorrentItem {
     return match != null ? match.group(1)!.toUpperCase() : '';
   }
 
+  /// Converte string de tamanho (ex: "3.78 GB", "500 MB") para bytes inteiros.
+  static int parseSizeToBytes(String? sizeStr) {
+    if (sizeStr == null || sizeStr.isEmpty) return 0;
+    final match = RegExp(r'([\d\.,]+)\s*(GB|MB|KB|B)', caseSensitive: false).firstMatch(sizeStr);
+    if (match == null) return 0;
+    final numStr = match.group(1)!.replaceAll(',', '.');
+    final val = double.tryParse(numStr);
+    if (val == null) return 0;
+    final unit = match.group(2)!.toUpperCase();
+    if (unit == 'GB') {
+      return (val * 1024 * 1024 * 1024).round();
+    } else if (unit == 'MB') {
+      return (val * 1024 * 1024).round();
+    } else if (unit == 'KB') {
+      return (val * 1024).round();
+    }
+    return val.round();
+  }
+
   /// Retorna o nome amigável do áudio
   String get audioLabel {
     if (isDubbed && isSubbed) return 'Dual Áudio (Dub/Leg)';

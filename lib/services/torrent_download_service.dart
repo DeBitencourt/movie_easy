@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
 import 'package:libtorrent_flutter/libtorrent_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -72,6 +75,39 @@ class TorrentDownloadService {
     }
   }
 
+  /// Obtém o tamanho real alocado (físico) em disco de um arquivo.
+  /// No Linux com arquivos esparsos (sparse files), File.lengthSync() retorna o tamanho lógico total
+  /// reservado pelo libtorrent (ex: 2.89 GB), enquanto os blocos realmente gravados (st_blocks * 512)
+  /// refletem com exatidão os bytes reais já baixados da rede.
+  int getRealAllocatedFileSize(String filePath) {
+    if (Platform.isLinux) {
+      try {
+        final libc = DynamicLibrary.process();
+        final statFn = libc.lookupFunction<
+          Int32 Function(Pointer<Utf8>, Pointer<Uint8>),
+          int Function(Pointer<Utf8>, Pointer<Uint8>)
+        >('stat');
+        final pathPtr = filePath.toNativeUtf8();
+        final buf = calloc<Uint8>(256);
+        try {
+          final res = statFn(pathPtr, buf);
+          if (res == 0) {
+            final byteData = buf.asTypedList(128).buffer.asByteData();
+            final stSize = byteData.getInt64(48, Endian.little);
+            final stBlocks = byteData.getInt64(64, Endian.little);
+            final allocated = stBlocks * 512;
+            return (stSize > 0 && allocated > stSize) ? stSize : allocated;
+          }
+        } finally {
+          calloc.free(pathPtr);
+          calloc.free(buf);
+        }
+      } catch (_) {}
+    }
+    final f = File(filePath);
+    return f.existsSync() ? f.lengthSync() : 0;
+  }
+
   void _onTorrentUpdates(Map<int, TorrentInfo> updates) {
     bool hasChanges = false;
     bool needsSave = false;
@@ -92,25 +128,69 @@ class TorrentDownloadService {
         item.numPeers = sanitizedPeers;
         item.downloadRate = info.downloadRate;
         item.uploadRate = info.uploadRate;
-        item.isPaused = info.isPaused;
 
-        if (info.totalWanted > 0) {
+        // No Linux, info.isPaused lê memória deslocada no struct nativo C++ da biblioteca pré-compilada,
+        // gerando alternâncias aleatórias. O estado de pausa deve ser estritamente controlado
+        // pelas ações manuais do usuário (pause/resume).
+        if (!Platform.isLinux) {
+          item.isPaused = info.isPaused;
+        }
+
+        // 1. Tentar obter o tamanho real através da lista de arquivos do torrent (metadata pronta)
+        if (!item.hasMetadata || item.totalWanted <= 0) {
+          try {
+            final files = LibtorrentFlutter.instance.getFiles(id);
+            if (files.isNotEmpty) {
+              final realFilesSize = files.fold<int>(0, (sum, f) => sum + f.size);
+              if (realFilesSize > 0) {
+                item.totalWanted = realFilesSize;
+                item.hasMetadata = true;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 2. Filtrar o valor corrompido de totalWanted no Linux FFI:
+        // No Linux, um bug de ABI no libtorrent_flutter faz com que info.totalWanted retorne
+        // um timestamp Unix em segundos (~1.7e9 .. 1.9e9 segundos = ~1.67 GB).
+        final isCorruptedLinuxTimestamp = Platform.isLinux &&
+            info.totalWanted >= 1700000000 &&
+            info.totalWanted <= 1900000000;
+
+        if (info.totalWanted > 0 && !isCorruptedLinuxTimestamp) {
           item.totalWanted = info.totalWanted;
         }
 
-        if (info.totalDone > 0) {
+        // 3. Progresso real em disco (medido pelos blocos físicos reais gravados no arquivo)
+        final localVideo = getLocalVideoFilePathForItem(item);
+        if (localVideo != null) {
+          final allocatedBytes = getRealAllocatedFileSize(localVideo);
+          if (allocatedBytes > 0) {
+            item.totalDone = allocatedBytes;
+          }
+        } else if (info.totalDone > 0 && !isCorruptedLinuxTimestamp && !Platform.isLinux) {
           item.totalDone = info.totalDone;
         }
 
-        final isCompleteInEngine = info.isFinished ||
-            info.state == TorrentState.finished ||
-            info.state == TorrentState.seeding ||
-            (item.totalWanted > 0 && item.totalDone >= item.totalWanted) ||
-            info.progress >= 0.999;
+        // 4. Verificação rigorosa de conclusão:
+        // No Linux, info.progress retorna 1.0 fixo e info.state checkingFiles devido ao bug de ABI.
+        // O download só é considerado realmente concluído quando os bytes físicos em disco
+        // atingirem pelo menos 99% do totalWanted esperado (com totalWanted > 10 MB).
+        final bool isRealComplete;
+        if (Platform.isLinux) {
+          isRealComplete = item.totalWanted > 10 * 1024 * 1024 &&
+              item.totalDone > 0 &&
+              item.totalDone >= (item.totalWanted * 0.99).toInt();
+        } else {
+          isRealComplete = info.isFinished ||
+              info.state == TorrentState.finished ||
+              info.state == TorrentState.seeding ||
+              (item.totalWanted > 0 && item.totalDone >= item.totalWanted);
+        }
 
-        item.hasMetadata = info.hasMetadata || info.totalDone > 0 || item.totalDone > 0;
+        item.hasMetadata = item.hasMetadata || info.hasMetadata || (item.totalDone > 0);
 
-        if (isCompleteInEngine) {
+        if (isRealComplete) {
           item.isFinished = true;
           item.progress = 1.0;
           if (item.totalWanted > 0) {
@@ -120,25 +200,33 @@ class TorrentDownloadService {
         } else {
           item.isFinished = false;
           if (item.totalWanted > 0 && item.totalDone > 0) {
-            item.progress = (item.totalDone / item.totalWanted).clamp(0.0, 1.0);
-          } else {
-            item.progress = info.progress.clamp(0.0, 1.0);
+            item.progress = (item.totalDone / item.totalWanted).clamp(0.0, 0.999);
+          } else if (!Platform.isLinux && info.progress > 0 && info.progress < 1.0) {
+            item.progress = info.progress.clamp(0.0, 0.999);
           }
 
-          if (!item.hasMetadata && !item.isPaused) {
+          if (item.isPaused) {
+            item.stateLabel = 'Pausado';
+          } else if (!item.hasMetadata) {
             final peerCount = item.numSeeds + item.numPeers;
             item.stateLabel = peerCount > 0
                 ? 'Baixando metadados ($peerCount pares)...'
                 : 'Localizando pares na rede DHT...';
-          } else if (info.state == TorrentState.checkingFiles || info.state == TorrentState.checkingResume) {
-            final checkPct = (info.progress * 100).toStringAsFixed(0);
+          } else if (item.downloadRate > 0) {
+            item.stateLabel = 'Baixando (${item.formattedSpeed})';
+          } else if (!Platform.isLinux && (info.state == TorrentState.checkingFiles || info.state == TorrentState.checkingResume)) {
+            final checkPct = (item.progress * 100).toStringAsFixed(0);
             item.stateLabel = 'Verificando integridade ($checkPct%)...';
           } else {
-            item.stateLabel = _mapStateToPortuguese(info.state, isPaused: info.isPaused);
+            item.stateLabel = Platform.isLinux
+                ? (item.downloadRate > 0
+                    ? 'Baixando (${item.formattedSpeed})'
+                    : (item.totalDone > 0 ? 'Conectando aos pares...' : 'Localizando pares na rede DHT...'))
+                : _mapStateToPortuguese(info.state, isPaused: info.isPaused);
           }
         }
 
-        if (!wasFinished && item.isFinished) {
+        if (wasFinished != item.isFinished) {
           needsSave = true;
         }
         hasChanges = true;
@@ -235,6 +323,8 @@ class TorrentDownloadService {
       cleanTitle = '${media.title} ($seasonNumª Temporada)';
     }
 
+    final expectedBytes = TorrentItem.parseSizeToBytes(torrent.size);
+
     final newItem = DownloadItem(
       id: torrentId,
       infoHash: torrent.infoHash,
@@ -250,6 +340,7 @@ class TorrentDownloadService {
       mediaTitle: media.title,
       seasonNumber: seasonNum,
       episodeNumber: epNum,
+      totalWanted: expectedBytes,
       stateLabel: 'Conectando aos pares...',
     );
 
@@ -646,6 +737,7 @@ class TorrentDownloadService {
         item.isPaused = true;
         item.stateLabel = 'Pausado';
         _downloadsController.add(allDownloads);
+        _saveDownloadsToStorage();
       }
     } catch (_) {}
   }
@@ -734,6 +826,22 @@ class TorrentDownloadService {
       _downloads.remove(id);
       _downloadsController.add(allDownloads);
       _saveDownloadsToStorage();
+    }
+  }
+
+  /// Cancela e remove todos os downloads da fila e exclui os arquivos associados.
+  Future<void> removeAllDownloads({bool deleteFiles = true}) async {
+    final list = _downloads.values.toList();
+    for (final item in list) {
+      await cancel(item.id, deleteFiles: deleteFiles);
+    }
+  }
+
+  /// Exclui todos os itens e episódios da biblioteca (concluídos) e seus arquivos locais.
+  Future<void> deleteAllLibraryItems({bool deleteFiles = true}) async {
+    final libraryItems = _downloads.values.where((d) => d.isFinished).toList();
+    for (final item in libraryItems) {
+      await cancel(item.id, deleteFiles: deleteFiles);
     }
   }
 
@@ -863,16 +971,30 @@ class TorrentDownloadService {
       // 3. Busca por diretório ou arquivos na pasta de downloads correspondentes ao nome
       final cleanTitle = item.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ').trim();
       final titleWords = cleanTitle.split(RegExp(r'\s+')).where((w) => w.length >= 3).toList();
+      final epNum = item.resolvedEpisodeNumber;
+      final seasonNum = item.resolvedSeasonNumber;
 
       for (final entity in saveDir.listSync()) {
         final name = entity.path.split(Platform.pathSeparator).last;
-        bool matches = name.toLowerCase().contains(item.title.toLowerCase()) ||
-            item.title.toLowerCase().contains(name.toLowerCase());
+        final lowerName = name.toLowerCase();
 
-        if (!matches && titleWords.length >= 2) {
-          final matchedCount = titleWords.where((w) => name.toLowerCase().contains(w.toLowerCase())).length;
-          if (matchedCount >= 2 && matchedCount >= (titleWords.length * 0.5)) {
+        bool matches = false;
+        if (epNum != null) {
+          // Para episódios individuais, NUNCA deletar por palavras soltas!
+          // Só deletar se o arquivo contiver o número do episódio exato
+          final epPattern = RegExp('(?:s0?${seasonNum ?? "\\d+"})?e0?$epNum\\b|epis[oó]dio\\s*0?$epNum\\b|0?$epNum\\b', caseSensitive: false);
+          if (epPattern.hasMatch(lowerName) && (item.cleanMediaTitle.isEmpty || lowerName.contains(item.cleanMediaTitle.toLowerCase()))) {
             matches = true;
+          }
+        } else {
+          matches = lowerName.contains(item.title.toLowerCase()) ||
+              item.title.toLowerCase().contains(lowerName);
+
+          if (!matches && titleWords.length >= 3) {
+            final matchedCount = titleWords.where((w) => lowerName.contains(w.toLowerCase())).length;
+            if (matchedCount >= 3 && matchedCount >= (titleWords.length * 0.7)) {
+              matches = true;
+            }
           }
         }
 
@@ -1070,14 +1192,50 @@ class TorrentDownloadService {
       for (final itemJson in decoded) {
         final item = DownloadItem.fromJson(itemJson as Map<String, dynamic>);
         if (item.infoHash.isNotEmpty) {
+          // Limpar qualquer totalWanted corrompido que tenha sido salvo como timestamp no Linux
+          if (Platform.isLinux && item.totalWanted >= 1700000000 && item.totalWanted <= 1900000000) {
+            item.totalWanted = 0;
+          }
           final exists = _downloads.values.any((d) => d.infoHash.toUpperCase() == item.infoHash.toUpperCase());
           if (!exists) {
             if (item.isFinished) {
               final localVideo = getLocalVideoFilePathForItem(item);
               if (localVideo != null && File(localVideo).existsSync()) {
-                item.totalDone = File(localVideo).lengthSync();
-                if (item.totalWanted <= 0) item.totalWanted = item.totalDone;
-                _downloads[item.id] = item;
+                final realBytes = getRealAllocatedFileSize(localVideo);
+                final expectedSize = item.totalWanted > 0 ? item.totalWanted : File(localVideo).lengthSync();
+                // Validar se o arquivo realmente está concluído ou se foi marcado como terminado prematuramente:
+                final isTrulyComplete = expectedSize > 10 * 1024 * 1024 &&
+                    (Platform.isLinux
+                        ? realBytes >= (expectedSize * 0.98).toInt()
+                        : true);
+
+                if (isTrulyComplete) {
+                  item.totalDone = expectedSize;
+                  if (item.totalWanted <= 0) item.totalWanted = expectedSize;
+                  _downloads[item.id] = item;
+                } else {
+                  // O download foi salvo incorretamente como concluído, mas só tem blocos parciais baixados!
+                  developer.log('Download ${item.title} restaurado de falso concluído: $realBytes / $expectedSize bytes');
+                  item.isFinished = false;
+                  item.totalDone = realBytes;
+                  item.totalWanted = expectedSize;
+                  item.progress = expectedSize > 0 ? (realBytes / expectedSize).clamp(0.0, 0.99) : 0.0;
+                  item.isPaused = false;
+                  item.stateLabel = 'Conectando aos pares...';
+
+                  try {
+                    final enhancedMagnet = ComandoTorrentsService.injectFastTrackers(item.magnetUrl);
+                    final newId = LibtorrentFlutter.instance.addMagnet(
+                      enhancedMagnet,
+                      item.savePath.isNotEmpty ? item.savePath : _defaultDownloadDirectory,
+                      false,
+                    );
+                    item.id = newId;
+                    _downloads[newId] = item;
+                  } catch (_) {
+                    _downloads[item.id] = item;
+                  }
+                }
               } else {
                 item.isFinished = false;
                 item.progress = 0.0;
@@ -1111,6 +1269,7 @@ class TorrentDownloadService {
         }
       }
       _downloadsController.add(allDownloads);
+      _saveDownloadsToStorage();
     } catch (e) {
       developer.log('Erro ao carregar downloads salvos: $e');
     }

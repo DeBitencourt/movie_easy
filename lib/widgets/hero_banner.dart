@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../models/media_item.dart';
+import '../providers/watch_later_provider.dart';
 
 class HeroBanner extends StatelessWidget {
   final MediaItem? item;
@@ -29,6 +31,8 @@ class HeroBanner extends StatelessWidget {
     final media = item!;
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth >= 800;
+    final watchLater = context.watch<WatchLaterProvider>();
+    final isSaved = watchLater.isSaved(media.id);
 
     return Container(
       height: isDesktop ? 440 : 360,
@@ -205,6 +209,44 @@ class HeroBanner extends StatelessWidget {
                           backgroundColor: AppTheme.card.withOpacity(0.7),
                           side: const BorderSide(color: AppTheme.border),
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final added = await watchLater.toggleWatchLater(media);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(added
+                                    ? '"${media.title}" adicionado a Assistir Mais Tarde.'
+                                    : '"${media.title}" removido de Assistir Mais Tarde.'),
+                                backgroundColor: AppTheme.card,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        },
+                        icon: Icon(
+                          isSaved ? Icons.bookmark_added_rounded : Icons.bookmark_add_outlined,
+                          size: 20,
+                          color: isSaved ? AppTheme.primary : AppTheme.textPrimary,
+                        ),
+                        label: Text(isSaved ? 'Na Lista' : 'Salvar'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isSaved ? AppTheme.primary : AppTheme.textPrimary,
+                          backgroundColor: isSaved
+                              ? AppTheme.primary.withOpacity(0.15)
+                              : AppTheme.card.withOpacity(0.7),
+                          side: BorderSide(
+                            color: isSaved ? AppTheme.primary : AppTheme.border,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
